@@ -137,6 +137,9 @@ def region_refine(
         # Composite: masked regions get noise, unmasked keep clean
         z_composite = mask * z_noised + (1 - mask) * z0_hat
 
+        # Cast back to pipeline dtype (UNet may be fp16)
+        z_composite = z_composite.to(dtype=pipeline.dtype)
+
         # Denoise (full forward pass — D-10)
         noise_pred = pipeline.unet_forward(
             z_composite, t_prime, state.prompt_embeds, state.negative_prompt_embeds,

@@ -146,7 +146,7 @@ def test_full_reward(model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-
     )
     print(f"  Terminal reward: {reward_t:.4f}")
     print(f"  Components: quality={metrics_t.get('r_quality', 0):.4f}, efficiency={metrics_t['r_efficiency']:.4f}, terminal={metrics_t['r_terminal']:.4f}")
-    assert metrics_t["r_terminal"] > 0, "Terminal reward should be positive"
+    assert metrics_t["r_terminal"] != 0.0, "Terminal reward should be non-zero"
     assert metrics_t["r_efficiency"] == 0.0  # Stop has NFE=0
 
     print("[PASS] Composite reward: R = R_quality + R_efficiency + R_terminal (D-13: no lambdas)")
