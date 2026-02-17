@@ -1,0 +1,46 @@
+# Data, outputs, checkpoints (too large for git)
+data/
+outputs/
+checkpoints/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Virtual environment
+.venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Excluded docs (internal/working files)
+rl_ppo_explainer.md
+experimental_design_adaptive_diffusion.md
+todo.md
+
+# HF cache
+hf_cache/
+
+# W&B
+wandb/
+
+# Local setup files, change before sharing
+setup_guide.md
+research.md
+

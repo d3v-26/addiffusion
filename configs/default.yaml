@@ -1,0 +1,80 @@
+# AdDiffusion Default Configuration
+# Reference: research.md §3.6 hyperparameter table
+
+model:
+  model_id: "stable-diffusion-v1-5/stable-diffusion-v1-5"
+  scheduler: "ddim"
+  guidance_scale: 7.5
+  resolution: 512
+  dtype: "float16"
+
+agent:
+  state_dim: 1672  # CLIP_img(768) + CLIP_txt(768) + timestep(128) + quality(8)
+  hidden_dim: 512
+  num_actions: 3  # continue, stop, refine (D-38)
+  warmup_steps: 3  # Mandatory continues (D-16)
+  use_clip_features: true
+  use_quality_features: true
+
+ppo:
+  lr: 3e-4
+  batch_size: 64  # Trajectories per PPO update
+  gamma_d: 0.99  # Discount factor (D-09: not gamma)
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coeff: 0.01  # c_2
+  value_coeff: 0.5  # c_1
+  max_grad_norm: 0.5
+  ppo_epochs: 4  # K gradient epochs per data collection
+  mini_batch_size: 64
+
+reward:
+  # Quality delta weights
+  alpha_1: 1.0   # CLIP delta
+  alpha_2: 0.5   # Aesthetic delta
+  alpha_3: 0.2   # Stability (DINO sim, D-11)
+  alpha_4: 0.8   # ImageReward delta
+
+  # Normalization scales (D-37)
+  clip_norm: 0.05
+  aesthetic_norm: 0.3
+  image_reward_norm: 0.2
+
+  # Efficiency (D-09: c_nfe not gamma)
+  c_nfe: 0.01
+
+  # Terminal
+  beta_1: 2.0  # CLIP
+  beta_2: 1.0  # Aesthetic
+  beta_3: 1.5  # ImageReward
+
+  normalize: true  # D-37
+
+refinement:
+  method: "attention"  # attention, grid, learned, random (A4 ablation)
+  k: 2  # Iterations per refine action
+  r_noise: 0.5  # t' = t * r_noise
+  mask_threshold: 0.5  # Attention quantile threshold (tau)
+  blur_sigma: 3.0  # Gaussian blur for soft masks (D-26)
+
+training:
+  total_iterations: 2000
+  num_steps: 50  # N_max = scheduler steps
+  seed: 42
+  checkpoint_every: 50
+  eval_every: 100
+  log_every: 10
+
+  # Curriculum (D-32)
+  curriculum:
+    simple_until: 500
+    mixed_until: 1200
+    # After 1200: full distribution
+
+  # Data
+  prompt_dataset: "data/coco/annotations/captions_val2014.json"
+
+logging:
+  use_wandb: false
+  project: "addiffusion"
+  log_images_every: 50  # Steps between image logging
