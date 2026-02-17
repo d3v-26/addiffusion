@@ -150,3 +150,8 @@ addiffusion/
 - If region refinement creates artifacts: adopt SAG as the refinement mechanism
 - If UNet-to-DiT transfer fails: train architecture-specific heads, report separately
 - If quality metrics disagree: use VLM-as-Judge (GPT-4o) as tiebreaker
+
+## Git Workflow
+
+- **Major changes** (new features, new files, multi-file edits) → create a new branch + pull request
+- **Minor changes** (typos, small fixes, config tweaks) → commit directly to main
