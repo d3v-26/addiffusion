@@ -257,7 +257,7 @@ class AdaptiveDiffusionPipeline:
             z0_pred = scheduler_output.pred_original_sample
         else:
             # Fallback: compute manually from noise prediction
-            alpha_prod_t = self.scheduler.alphas_cumprod[t.long()]
+            alpha_prod_t = self.scheduler.alphas_cumprod[t.cpu().long()].to(state.z_t.device)
             z0_pred = (state.z_t - (1 - alpha_prod_t).sqrt() * noise_pred) / alpha_prod_t.sqrt()
 
         return StepOutput(
@@ -342,7 +342,7 @@ class AdaptiveDiffusionPipeline:
         """Compute one-step clean prediction from noisy latent and predicted noise."""
         if isinstance(t, int):
             t = torch.tensor([t], device=self.device, dtype=torch.long)
-        alpha_prod_t = self.scheduler.alphas_cumprod[t.long()].to(z_t.device)
+        alpha_prod_t = self.scheduler.alphas_cumprod[t.cpu().long()].to(z_t.device)
         # Reshape for broadcasting
         while alpha_prod_t.dim() < z_t.dim():
             alpha_prod_t = alpha_prod_t.unsqueeze(-1)
