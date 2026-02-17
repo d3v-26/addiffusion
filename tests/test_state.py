@@ -119,8 +119,8 @@ def test_quality_vector():
         dino_similarity=0.95, step_ratio=0.4, nfe_ratio=0.3,
     )
     assert q.shape == (1, 8), f"Expected (1, 8), got {q.shape}"
-    assert q[0, 0].item() == 0.3  # clip_score
-    assert q[0, 3].item() == 0.95  # dino_similarity (not a delta — D-11)
+    assert abs(q[0, 0].item() - 0.3) < 1e-6  # clip_score
+    assert abs(q[0, 3].item() - 0.95) < 1e-6  # dino_similarity (not a delta — D-11)
     print(f"[PASS] Quality vector: shape={q.shape}, values={q.tolist()}")
 
 

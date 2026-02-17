@@ -125,7 +125,7 @@ def region_refine(
     # Steps 2a-2b: k refinement iterations
     for j in range(k):
         # Re-noise masked regions to t'
-        noise = torch.randn_like(z0_hat, generator=generator)
+        noise = torch.randn(z0_hat.shape, dtype=z0_hat.dtype, device=z0_hat.device, generator=generator)
         t_prime_tensor = torch.tensor([t_prime], device=pipeline.device, dtype=torch.long)
 
         alpha_prod_t = pipeline.scheduler.alphas_cumprod[t_prime_tensor.long()]

@@ -298,7 +298,7 @@ class AdaptiveDiffusionPipeline:
         Used for post-refinement state transition (D-19):
         z_{t_{i+1}} = sqrt(alpha_bar) * z0_refined + sqrt(1 - alpha_bar) * eps
         """
-        noise = torch.randn_like(z0, generator=generator)
+        noise = torch.randn(z0.shape, dtype=z0.dtype, device=z0.device, generator=generator)
         t_tensor = torch.tensor([timestep], device=self.device, dtype=torch.long)
         z_noisy = self.scheduler.add_noise(z0, noise, t_tensor)
         return z_noisy

@@ -114,6 +114,7 @@ addiffusion/
 
 ## Code Conventions
 
+- **Always check `pyproject.toml` (or `uv.lock` for exact resolved versions) before using any package API.** Never assume API signatures — verify against the installed version's actual interface.
 - Use latent-space variable names (`z_t`, `z_0`) in diffusion code, pixel-space (`x`, `x_0`) only after VAE decode.
 - Use `c_nfe` not `gamma` for the NFE penalty weight. Use `gamma_d` for discount factor.
 - Attention extraction must be a pluggable interface: separate implementations for UNet (SD 1.5, SDXL) and DiT (Flux.1). See D-27.

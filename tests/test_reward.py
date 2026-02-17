@@ -51,7 +51,7 @@ def test_normalization_toggle():
     # Without: delta_clip raw
     delta = 0.01
     normalized = delta / cfg_norm.clip_norm
-    assert normalized == 0.2, f"Normalized delta should be 0.2, got {normalized}"
+    assert abs(normalized - 0.2) < 1e-9, f"Normalized delta should be ~0.2, got {normalized}"
     print(f"  Raw delta_CLIP=0.01 → normalized={normalized} (divided by {cfg_norm.clip_norm})")
     print("[PASS] Normalization scales correctly (D-37)")
 
