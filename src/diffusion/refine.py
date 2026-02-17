@@ -128,7 +128,7 @@ def region_refine(
         noise = torch.randn(z0_hat.shape, dtype=z0_hat.dtype, device=z0_hat.device, generator=generator)
         t_prime_tensor = torch.tensor([t_prime], device=pipeline.device, dtype=torch.long)
 
-        alpha_prod_t = pipeline.scheduler.alphas_cumprod[t_prime_tensor.long()]
+        alpha_prod_t = pipeline.scheduler.alphas_cumprod[t_prime_tensor.cpu().long()].to(z0_hat.device)
         while alpha_prod_t.dim() < z0_hat.dim():
             alpha_prod_t = alpha_prod_t.unsqueeze(-1)
 

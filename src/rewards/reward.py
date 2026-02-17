@@ -111,7 +111,7 @@ class RewardComputer:
         img = TF.normalize(img, mean=[0.48145466, 0.4578275, 0.40821073],
                            std=[0.26862954, 0.26130258, 0.27577711])
 
-        img_features = clip_model.encode_image(img.to(self.device))
+        img_features = clip_model.encode_image(img.to(device=self.device, dtype=torch.float32))
         img_features = img_features / img_features.norm(dim=-1, keepdim=True)
 
         tokens = tokenizer([prompt]).to(self.device)
@@ -162,7 +162,7 @@ class RewardComputer:
             img = TF.resize(img, [224, 224], antialias=True)
             img = TF.normalize(img, mean=[0.485, 0.456, 0.406],
                                std=[0.229, 0.224, 0.225])
-            return dino(img.to(self.device))
+            return dino(img.to(device=self.device, dtype=torch.float32))
 
         f1 = encode(image1)
         f2 = encode(image2)
