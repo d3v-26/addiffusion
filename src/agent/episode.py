@@ -136,6 +136,12 @@ class EpisodeRunner:
             step_idx = pipe_state.step_index
             is_warmup = step_idx < self.warmup_steps
 
+            # Debug: verify dtype consistency before UNet call
+            assert pipe_state.z_t.dtype == self.pipeline.dtype, (
+                f"[BUG] z_t dtype={pipe_state.z_t.dtype} != pipeline dtype={self.pipeline.dtype} "
+                f"at step {step_idx}. Likely a float32 promotion from alphas_cumprod math."
+            )
+
             # Run denoising step to get current prediction + attention maps
             self.attention_extractor.clear()
             step_out = self.pipeline.denoise_step(pipe_state, guidance_scale=self.guidance_scale)

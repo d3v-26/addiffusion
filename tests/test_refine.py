@@ -91,10 +91,13 @@ def test_region_refine(model_id: str = "stable-diffusion-v1-5/stable-diffusion-v
     mask[:, :, 32:, :] = 1.0
 
     nfe_before = state.total_nfe
+    print(f"  [DEBUG] state.z_t dtype={state.z_t.dtype}, pipeline.dtype={pipe.dtype}")
     z0_refined, nfe = region_refine(pipe, state, mask, k=2, r_noise=0.5)
+    print(f"  [DEBUG] z0_refined dtype={z0_refined.dtype}, shape={z0_refined.shape}")
 
     assert z0_refined.shape == (1, 4, 64, 64), f"Wrong output shape: {z0_refined.shape}"
     assert nfe == 3, f"NFE should be 1+k=3, got {nfe} (D-10)"
+    assert z0_refined.dtype == pipe.dtype, f"z0_refined dtype={z0_refined.dtype}, expected {pipe.dtype}"
     print(f"[PASS] RegionRefine: output shape={z0_refined.shape}, NFE={nfe} (1+k=3, correct per D-10)")
 
     # Decode and save

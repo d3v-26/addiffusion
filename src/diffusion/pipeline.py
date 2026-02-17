@@ -257,7 +257,7 @@ class AdaptiveDiffusionPipeline:
             z0_pred = scheduler_output.pred_original_sample
         else:
             # Fallback: compute manually from noise prediction
-            alpha_prod_t = self.scheduler.alphas_cumprod[t.cpu().long()].to(state.z_t.device)
+            alpha_prod_t = self.scheduler.alphas_cumprod[t.cpu().long()].to(device=state.z_t.device, dtype=self.dtype)
             z0_pred = (state.z_t - (1 - alpha_prod_t).sqrt() * noise_pred) / alpha_prod_t.sqrt()
 
         return StepOutput(
@@ -301,7 +301,7 @@ class AdaptiveDiffusionPipeline:
         noise = torch.randn(z0.shape, dtype=z0.dtype, device=z0.device, generator=generator)
         t_tensor = torch.tensor([timestep], device=self.device, dtype=torch.long)
         z_noisy = self.scheduler.add_noise(z0, noise, t_tensor)
-        return z_noisy
+        return z_noisy.to(dtype=self.dtype)
 
     @torch.no_grad()
     def unet_forward(
@@ -346,6 +346,8 @@ class AdaptiveDiffusionPipeline:
         # Reshape for broadcasting
         while alpha_prod_t.dim() < z_t.dim():
             alpha_prod_t = alpha_prod_t.unsqueeze(-1)
+        # Cast to pipeline dtype to avoid float32 promotion from alphas_cumprod
+        alpha_prod_t = alpha_prod_t.to(dtype=self.dtype)
         z0_pred = (z_t - (1 - alpha_prod_t).sqrt() * noise_pred) / alpha_prod_t.sqrt()
         return z0_pred
 
