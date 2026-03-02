@@ -34,12 +34,15 @@ These issues have been resolved in `research.md` but are easy to reintroduce in 
 ## Architecture Summary
 
 ```
-State: phi(s_i) = [CLIP_img(x0_hat), CLIP_txt(c), emb(t_i), q_i]  ~  d=1280
-Policy: Linear(d,512) -> ReLU -> Linear(512,256) -> ReLU -> Linear(256,3) -> Softmax
-Value:  Linear(d,512) -> ReLU -> Linear(512,256) -> ReLU -> Linear(256,1)
+State: phi(s_i) = [CLIP_img(x0_hat), CLIP_txt(c), emb(t_i), q_i]
+         768d       +   768d         +  128d       + 8d  = 1672d total
+Policy: Linear(1672,512) -> ReLU -> Linear(512,256) -> ReLU -> Linear(256,3) -> Softmax
+Value:  Linear(1672,512) -> ReLU -> Linear(512,256) -> ReLU -> Linear(256,1)
 Actions: |A| = 3  {continue, stop, refine}
 Mask: m = GaussianBlur(1[max_l A[:,:,l] < tau], sigma=3)  (deterministic from state)
 ```
+
+**State dimension is 1672, not 1280.** Confirmed in `src/agent/state.py` as `StateExtractor.TOTAL_DIM`. Use this value when instantiating networks.
 
 The agent decides **whether** to refine, not **where**. The mask is computed deterministically from cross-attention maps. This collapses the combinatorial action space to 3 discrete actions.
 
@@ -111,6 +114,7 @@ addiffusion/
 - Experiment tracking: W&B
 - Compute: A100-40GB (SD 1.5), A100-80GB (SDXL)
 - Run commands with `uv run python ...`
+- **The actual execution environment is a remote HPC cluster (SLURM).** The local machine (macOS) is code-only — no GPU, no model weights, no datasets. All `uv run python` commands that require GPU must be submitted via `sbatch` or `srun` on the cluster. Do not attempt to run GPU-dependent code locally.
 
 ## Code Conventions
 
@@ -135,14 +139,16 @@ addiffusion/
 
 ## Execution Plan Phases
 
-| Phase | Timeline | Key Deliverable |
-|-------|----------|----------------|
-| 0: Setup | Week 1 | Environment ready, GPU memory audit (G0) |
-| 1: Core Agent | Weeks 2-4 | Working agent with PPO training (G1) |
-| 2: Baselines & Tuning | Weeks 5-7 | All baselines, hyperparameter selection (G2) |
-| 3: Full Training & Eval | Weeks 8-10 | Trained agent, ablations, full benchmarks (G3) |
-| 4: Generalization | Weeks 11-12 | SDXL/Flux.1 transfer, visualizations (G4) |
-| 5: Paper | Weeks 13-14 | Submission-ready paper |
+| Phase | Timeline | Key Deliverable | Status |
+|-------|----------|----------------|--------|
+| 0: Setup | Week 1 | Environment ready, GPU memory audit (G0) | ✓ Done |
+| 1: Core Agent | Weeks 2-4 | Working agent with PPO training (G1) | ✓ Done — see `phase1.md` |
+| 2: Baselines & Tuning | Weeks 5-7 | All baselines, hyperparameter selection (G2) | ✓ Done — see `phase2.md` |
+| 3: Full Training & Eval | Weeks 8-10 | Trained agent, ablations, full benchmarks (G3) | Next |
+| 4: Generalization | Weeks 11-12 | SDXL/Flux.1 transfer, visualizations (G4) | Pending |
+| 5: Paper | Weeks 13-14 | Submission-ready paper | Pending |
+
+Phase completion docs: `phase1.md` (core agent), `phase2.md` (baselines + evaluation + tuning).
 
 ## Fallback Strategies
 
