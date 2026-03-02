@@ -38,7 +38,8 @@ dependencies = [
     "transformers==4.48.1",
     "wandb>=0.24.1",
     "xformers==0.0.29.post2",
-    "numpy<2"
+    "numpy<2",
+    "openai>=1.0.0",
 ]
 
 [[tool.uv.index]]
