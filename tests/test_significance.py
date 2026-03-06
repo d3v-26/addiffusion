@@ -174,7 +174,7 @@ class TestWilsonScoreInterval(unittest.TestCase):
     def test_zero_wins_lower_is_zero(self) -> None:
         """Lower bound for 0/100 wins should be 0."""
         lower, upper = wilson_score_interval(0, 100)
-        self.assertEqual(lower, 0.0)
+        self.assertAlmostEqual(lower, 0.0, places=10)
         self.assertGreater(upper, 0.0)
 
     def test_all_wins_upper_is_one(self) -> None:

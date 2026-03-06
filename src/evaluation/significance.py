@@ -73,7 +73,13 @@ def paired_bootstrap_test(
 
     # Pooled standard deviation for effect size
     pooled_std = float(np.sqrt((metric_a.std(ddof=1) ** 2 + metric_b.std(ddof=1) ** 2) / 2))
-    effect_size = observed_diff / pooled_std if pooled_std > 1e-12 else 0.0
+    #effect_size = observed_diff / pooled_std if pooled_std > 1e-12 else 0.0
+    if pooled_std > 1e-12:
+        effect_size = observed_diff / pooled_std
+    elif abs(observed_diff) > 1e-12:
+        effect_size = float("inf") if observed_diff > 0 else float("-inf")
+    else:
+        effect_size = 0.0
 
     # Bootstrap resampling of paired differences
     rng = np.random.default_rng(seed)
@@ -90,7 +96,8 @@ def paired_bootstrap_test(
 
     # P-value: proportion of bootstrap samples as extreme as observed
     # Under H0, shift bootstrap distribution to be centred at 0
-    shifted = bootstrap_means - bootstrap_means.mean()
+    # shifted = bootstrap_means - bootstrap_means.mean()
+    shifted = bootstrap_means - observed_diff  # Shift to observed_diff for correct tail direction
 
     if alternative == "two-sided":
         p_value = float(np.mean(np.abs(shifted) >= abs(observed_diff)))

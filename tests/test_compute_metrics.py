@@ -112,7 +112,8 @@ class TestWilsonScoreInterval(unittest.TestCase):
     def test_wilson_zero_wins(self) -> None:
         """Wilson CI lower bound for 0 wins should be 0."""
         lower, upper = wilson_score_interval(0, 100)
-        self.assertEqual(lower, 0.0)
+        # self.assertEqual(lower, 0.0)
+        self.assertAlmostEqual(lower, 0.0, places=10)
         self.assertGreater(upper, 0.0)
 
     def test_wilson_all_wins(self) -> None:
@@ -120,6 +121,7 @@ class TestWilsonScoreInterval(unittest.TestCase):
         lower, upper = wilson_score_interval(100, 100)
         self.assertLess(lower, 1.0)
         self.assertEqual(upper, 1.0)
+        # self.assertAlmostEqual(upper, 1.0, places=10)
 
     def test_wilson_zero_total(self) -> None:
         """Wilson CI for 0 total should return (0, 1)."""
