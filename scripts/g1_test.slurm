@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=g1-test
-#SBATCH --partition=gpu
+#SBATCH --partition=hpg-turin
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --time=02:00:00
-#SBATCH --output=logs/g1_test_%j.out
-#SBATCH --error=logs/g1_test_%j.err
+#SBATCH --time=04:00:00
+#SBATCH --output=/blue/ruogu.fang/pateld3/addiffusion/logs/g1_test_%j.out
+#SBATCH --error=/blue/ruogu.fang/pateld3/addiffusion/logs/g1_test_%j.err
 
 # Load modules
 module load cuda/12.4.1
