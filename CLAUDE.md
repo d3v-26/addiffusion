@@ -136,6 +136,7 @@ addiffusion/
 6. Treating DINO consistency as a delta when it's an absolute similarity (D-11)
 7. Not normalizing reward components before weighting (D-37)
 8. Assuming CLIP features are informative at early timesteps — they're not (D-16)
+9. Running `uv run python` or test commands locally to verify changes — do not do this. Submit to HPC for execution. Local machine has no GPU, no weights, no datasets.
 
 ## Execution Plan Phases
 

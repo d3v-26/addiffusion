@@ -40,6 +40,7 @@ from typing import Optional
 
 import numpy as np
 from PIL import Image as PILImage
+from openai import OpenAI
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +146,6 @@ class VLMJudge:
         self.rate_limit_rps = rate_limit_rps
         self._sleep_s = 1.0 / rate_limit_rps if rate_limit_rps > 0 else 0.0
 
-        from openai import OpenAI
         self._client = OpenAI()  # Reads OPENAI_API_KEY from environment
 
     def compare_pair(
