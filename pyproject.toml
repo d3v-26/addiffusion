@@ -19,6 +19,7 @@ dependencies = [
     "open-clip-torch>=2.32.0",
     "optuna>=4.7.0",
     "pandas>=2.3.3",
+    "peft>=0.9.0",
     "pillow>=12.1.0",
     "protobuf>=3.20.3",
     "pyarrow>=12.0,<15.0",
