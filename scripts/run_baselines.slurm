@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=baselines
+#SBATCH --partition=hpg-turin
 #SBATCH --gres=gpu:1
-#SBATCH --mem=40G
+#SBATCH --mem=30G
 #SBATCH --time=04:00:00
-#SBATCH --output=logs/baselines_%j.out
-#SBATCH --error=logs/baselines_%j.err
+#SBATCH --output=/blue/ruogu.fang/pateld3/addiffusion/logs/baselines_%j.out
+#SBATCH --error=/blue/ruogu.fang/pateld3/addiffusion/logs/baselines_%j.err
 
 # Run one or more baselines on DrawBench prompts (Phase 2, Week 6).
 #
@@ -21,7 +22,7 @@
 #   - experiment.md §3 (commands and validation)
 
 set -e
-cd "$(dirname "$0")/.."
+cd "/blue/ruogu.fang/pateld3/addiffusion/"
 
 mkdir -p logs outputs/baselines
 
@@ -34,7 +35,7 @@ echo "Node      : ${SLURM_NODELIST}"
 echo "Started   : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "================================"
 
-uv run python scripts/run_baselines.py \
+uv run python ./scripts/run_baselines.py \
     --baselines "${BASELINES}" \
     --prompts_file data/drawbench/prompts.json \
     --output_dir outputs/baselines/ \

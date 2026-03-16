@@ -188,9 +188,9 @@ This plan guides the execution of the AdDiffusion project: training and evaluati
 | Day | Task | Deliverable |
 |-----|------|-------------|
 | 1 | Test SD 1.5-trained agent on SDXL (zero-shot transfer) | Transfer results |
-| 2 | If zero-shot fails (>5% CLIP drop): train architecture-specific head for SDXL (D-27) | SDXL-adapted agent |
-| 3 | Test on Flux.1-schnell with DiT attention interface | DiT transfer results |
-| 4 | Test with alternative schedulers (Euler, UniPC, PNDM) without retraining (D-30) | Scheduler robustness results |
+| 2 | Implement and run LLM-guided baseline (GPT-4o layout → DDIM-50) on DrawBench-50 subset; compare wall-clock time and CLIP/ImageReward vs. AdDiffusion | LLM-guided comparison results |
+| 3 | If zero-shot fails (>5% CLIP drop): train architecture-specific head for SDXL (D-27) | SDXL-adapted agent |
+| 4 | Test on Flux.1-schnell with DiT attention interface; test with alternative schedulers (Euler, UniPC, PNDM) without retraining (D-30) | DiT transfer + scheduler robustness results |
 | 5 | Cross-dataset evaluation: train on COCO, eval on DrawBench/PartiPrompts | Robustness analysis |
 
 #### Week 12: Deep Analysis
@@ -260,7 +260,8 @@ This plan guides the execution of the AdDiffusion project: training and evaluati
 | Full benchmark evaluation (COCO-30K × 5 seeds + others) | 100 | A100-40GB | 3 |
 | Generalization experiments (SDXL, Flux.1) | 200 | A100-80GB | 4 |
 | VLM-as-Judge API calls | ~$200 | GPT-4o API | 3–4 |
-| **Total** | **~797 + $200 API** | — | — |
+| LLM-guided baseline API calls | ~$50 | GPT-4o API | 4 |
+| **Total** | **~797 + $250 API** | — | — |
 
 > Budget of ~930 GPU hours (from experimental_design_adaptive_diffusion.md §6.1) provides ~15% margin.
 

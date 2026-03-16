@@ -1,10 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=eval_metrics
+#SBATCH --partition=hpg-turin
 #SBATCH --gres=gpu:1
-#SBATCH --mem=40G
+#SBATCH --mem=30G
 #SBATCH --time=02:00:00
-#SBATCH --output=logs/eval_metrics_%j.out
-#SBATCH --error=logs/eval_metrics_%j.err
+#SBATCH --output=/blue/ruogu.fang/pateld3/addiffusion/logs/eval_metrics_%j.out
+#SBATCH --error=/blue/ruogu.fang/pateld3/addiffusion/logs/eval_metrics_%j.err
 
 # Compute all evaluation metrics for a single baseline method (Phase 2, Week 6).
 #
@@ -27,7 +28,7 @@
 #   - experiment.md §4 (output layout)
 
 set -e
-cd "$(dirname "$0")/.."
+cd "/blue/ruogu.fang/pateld3/addiffusion/"
 
 mkdir -p logs outputs/evaluation/metrics
 
@@ -47,7 +48,7 @@ if [ -n "${REFERENCE_DIR}" ]; then
     REFERENCE_ARG="--reference_dir ${REFERENCE_DIR}"
 fi
 
-uv run python src/evaluation/compute_metrics.py \
+uv run python ./src/evaluation/compute_metrics.py \
     --images_dir "outputs/baselines/${METHOD}/" \
     --prompts_file data/drawbench/prompts.json \
     --output_file "outputs/evaluation/metrics/${METHOD}.json" \

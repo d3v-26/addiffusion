@@ -1,20 +1,19 @@
 #!/bin/bash
 #SBATCH --job-name=addiffusion-train
-#SBATCH --partition=gpu
+#SBATCH --partition=hpg-turin
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
-#SBATCH --output=logs/train_%j.out
-#SBATCH --error=logs/train_%j.err
+#SBATCH --output=/blue/ruogu.fang/pateld3/addiffusion/logs/train_%j.out
+#SBATCH --error=/blue/ruogu.fang/pateld3/addiffusion/logs/train_%j.err
 
 # Load modules
 module load cuda/12.4.1
 module load gcc/11.4.0
 
 # Activate environment
-cd $SLURM_SUBMIT_DIR
-source .venv/bin/activate
+cd "/blue/ruogu.fang/pateld3/addiffusion/"
 
 # Set HF cache
 export HF_HOME=/blue/ruogu.fang/pateld3/.cache/huggingface

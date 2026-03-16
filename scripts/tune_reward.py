@@ -16,6 +16,9 @@ import argparse
 import json
 import os
 import random
+import sys
+from pathlib import Path as _Path
+sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
 import traceback
 
 import torch

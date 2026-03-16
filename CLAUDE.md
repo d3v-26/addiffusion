@@ -46,6 +46,26 @@ Mask: m = GaussianBlur(1[max_l A[:,:,l] < tau], sigma=3)  (deterministic from st
 
 The agent decides **whether** to refine, not **where**. The mask is computed deterministically from cross-attention maps. This collapses the combinatorial action space to 3 discrete actions.
 
+## External AI Model Usage
+
+Only one external AI model is used in AdDiffusion — GPT-4o in the evaluation pipeline:
+
+| Model | Where | Purpose |
+|-------|-------|---------|
+| GPT-4o | `src/evaluation/vlm_judge.py` | Pairwise VLM-as-Judge evaluation only |
+
+All other models are lightweight frozen networks loaded locally:
+- CLIP ViT-L/14 — state features + CLIP score reward
+- DINO ViT-S/8 — R_stability (temporal consistency reward)
+- Aesthetic scorer (LAION) — aesthetic reward component
+- ImageReward — holistic quality reward
+- Inception v3 — FID / IS computation
+
+**LLM-guided generation comparison (Phase 4):** One LLM-guided baseline
+(GPT-4o layout plan → DDIM-50 execution) will be run in Phase 4 as a comparison
+class. This demonstrates that AdDiffusion achieves equivalent quality without any
+LLM API calls at inference time, saving 2–5s wall-clock latency per image.
+
 ## Episode Structure
 
 - Agent wraps a base scheduler (e.g., DDIM-50). N_max matches the scheduler's step count.
