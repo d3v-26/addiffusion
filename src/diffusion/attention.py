@@ -57,7 +57,11 @@ class UNetAttentionExtractor(AttentionExtractor):
         self._hooks: list[torch.utils.hooks.RemovableHook] = []
 
     def hook(self, unet: torch.nn.Module) -> None:
-        """Register hooks on all cross-attention Attention modules in the UNet."""
+        """Register attention processors that store cross-attention maps."""
+        self.hook_with_processor(unet)
+
+    def _hook_legacy(self, unet: torch.nn.Module) -> None:
+        """Unused legacy approach: register forward hooks (no-op body)."""
         self.clear()
         self.remove_hooks()
 
