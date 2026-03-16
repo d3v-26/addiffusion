@@ -62,16 +62,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
     parser.add_argument("--device", type=str, default="cuda", help="Torch device string.")
+    parser.add_argument(
+        "--max_prompts",
+        type=int,
+        default=None,
+        help="Cap the number of prompts loaded. Shuffles then slices. Default: use all.",
+    )
     return parser.parse_args()
 
 
 def load_prompts(path: str) -> list[str]:
-    """Load prompts from a JSON file (list of strings)."""
+    """Load prompts from a JSON file.
+
+    Accepts either:
+    - A plain list of strings: ["prompt1", "prompt2", ...]
+    - COCO captions format: {"annotations": [{"caption": "..."}, ...]}
+    """
     with open(path, "r") as fh:
         data = json.load(fh)
-    if not isinstance(data, list):
-        raise ValueError(f"Expected a JSON list of strings in {path}, got {type(data)}.")
-    return [str(p) for p in data]
+    if isinstance(data, list):
+        return [str(p) for p in data]
+    if isinstance(data, dict) and "annotations" in data:
+        return [str(ann["caption"]) for ann in data["annotations"] if "caption" in ann]
+    raise ValueError(f"Unrecognised prompts format in {path}.")
 
 
 def make_reward_fn(reward_computer: RewardComputer, pipeline: AdaptiveDiffusionPipeline):
@@ -229,6 +242,11 @@ def main() -> None:
     print(f"[tune_lr] Loading prompts from {args.prompts_file} ...")
     prompts = load_prompts(args.prompts_file)
     print(f"[tune_lr] Loaded {len(prompts)} prompts.")
+    if args.max_prompts is not None and len(prompts) > args.max_prompts:
+        rng = random.Random(args.seed)
+        rng.shuffle(prompts)
+        prompts = prompts[: args.max_prompts]
+        print(f"[tune_lr] Capped prompts to {len(prompts)} (--max_prompts {args.max_prompts})")
 
     all_rewards: dict[str, list[float]] = {}
     all_nfes: dict[str, list[float]] = {}

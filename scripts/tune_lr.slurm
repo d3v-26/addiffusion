@@ -14,5 +14,6 @@ mkdir -p /blue/ruogu.fang/pateld3/addiffusion/logs /blue/ruogu.fang/pateld3/addi
 uv run python /blue/ruogu.fang/pateld3/addiffusion/scripts/tune_lr.py \
     --lrs 1e-4 3e-4 1e-3 \
     --n_iters 500 \
-    --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/prompts_1k.json \
-    --output_dir /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/lr_sweep/
+    --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/annotations/captions_train2014.json \
+    --output_dir /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/lr_sweep/ \
+    --max_prompts 1000
