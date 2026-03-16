@@ -9,10 +9,10 @@
 
 set -e
 cd "/blue/ruogu.fang/pateld3/addiffusion/"
-mkdir -p logs outputs/tuning/lr_sweep
+mkdir -p /blue/ruogu.fang/pateld3/addiffusion/logs /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/lr_sweep
 
-uv run python ./scripts/tune_lr.py \
+uv run python /blue/ruogu.fang/pateld3/addiffusion/scripts/tune_lr.py \
     --lrs 1e-4 3e-4 1e-3 \
     --n_iters 500 \
-    --prompts_file data/coco/prompts_1k.json \
-    --output_dir outputs/tuning/lr_sweep/
+    --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/prompts_1k.json \
+    --output_dir /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/lr_sweep/

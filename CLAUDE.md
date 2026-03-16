@@ -136,6 +136,12 @@ addiffusion/
 - Run commands with `uv run python ...`
 - **The actual execution environment is a remote HPC cluster (SLURM).** The local machine (macOS) is code-only — no GPU, no model weights, no datasets. All `uv run python` commands that require GPU must be submitted via `sbatch` or `srun` on the cluster. Do not attempt to run GPU-dependent code locally.
 
+## SLURM Script Conventions
+
+- **Always use absolute paths in `.slurm` files.** Never use relative paths (`./scripts/`, `data/`, `outputs/`, `src/`, `configs/`) or `$SLURM_SUBMIT_DIR`. SLURM jobs may not run from the expected working directory.
+- Base path for all SLURM scripts: `/blue/ruogu.fang/pateld3/addiffusion/`
+- This applies to every path in the script: `mkdir -p`, python script arguments, `--prompts_file`, `--output_dir`, `--config`, etc.
+
 ## Code Conventions
 
 - **Always check `pyproject.toml` (or `uv.lock` for exact resolved versions) before using any package API.** Never assume API signatures — verify against the installed version's actual interface.

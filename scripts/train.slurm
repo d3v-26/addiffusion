@@ -21,7 +21,7 @@ export TRANSFORMERS_CACHE=$HF_HOME
 export TORCH_HOME=/blue/ruogu.fang/pateld3/.cache/torch
 
 # Create log directory
-mkdir -p logs
+mkdir -p /blue/ruogu.fang/pateld3/addiffusion/logs
 
 # Run training
 echo "Starting training at $(date)"
@@ -29,8 +29,8 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "Memory: $(nvidia-smi --query-gpu=memory.total --format=csv,noheader)"
 
-uv run python src/train.py \
-    --config configs/default.yaml \
+uv run python /blue/ruogu.fang/pateld3/addiffusion/src/train.py \
+    --config /blue/ruogu.fang/pateld3/addiffusion/configs/default.yaml \
     training.total_iterations=2000 \
     training.seed=42 \
     logging.use_wandb=true

@@ -30,7 +30,7 @@
 set -e
 cd "/blue/ruogu.fang/pateld3/addiffusion/"
 
-mkdir -p logs outputs/evaluation/metrics
+mkdir -p /blue/ruogu.fang/pateld3/addiffusion/logs /blue/ruogu.fang/pateld3/addiffusion/outputs/evaluation/metrics
 
 METHOD=${1:-"ddim20"}
 
@@ -48,12 +48,12 @@ if [ -n "${REFERENCE_DIR}" ]; then
     REFERENCE_ARG="--reference_dir ${REFERENCE_DIR}"
 fi
 
-uv run python ./src/evaluation/compute_metrics.py \
-    --images_dir "outputs/baselines/${METHOD}/" \
-    --prompts_file data/drawbench/prompts.json \
-    --output_file "outputs/evaluation/metrics/${METHOD}.json" \
+uv run python /blue/ruogu.fang/pateld3/addiffusion/src/evaluation/compute_metrics.py \
+    --images_dir "/blue/ruogu.fang/pateld3/addiffusion/outputs/baselines/${METHOD}/" \
+    --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/drawbench/prompts.json \
+    --output_file "/blue/ruogu.fang/pateld3/addiffusion/outputs/evaluation/metrics/${METHOD}.json" \
     --metrics fid clip_score cmmd imagereward hpsv2 is \
     ${REFERENCE_ARG}
 
 echo "=== Done: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
-echo "Results written to outputs/evaluation/metrics/${METHOD}.json"
+echo "Results written to /blue/ruogu.fang/pateld3/addiffusion/outputs/evaluation/metrics/${METHOD}.json"

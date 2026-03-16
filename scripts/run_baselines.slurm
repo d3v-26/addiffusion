@@ -24,7 +24,7 @@
 set -e
 cd "/blue/ruogu.fang/pateld3/addiffusion/"
 
-mkdir -p logs outputs/baselines
+mkdir -p /blue/ruogu.fang/pateld3/addiffusion/logs /blue/ruogu.fang/pateld3/addiffusion/outputs/baselines
 
 BASELINES=${1:-"ddim20"}  # Comma-separated list; default to ddim20 if not provided
 
@@ -35,10 +35,10 @@ echo "Node      : ${SLURM_NODELIST}"
 echo "Started   : $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "================================"
 
-uv run python ./scripts/run_baselines.py \
+uv run python /blue/ruogu.fang/pateld3/addiffusion/scripts/run_baselines.py \
     --baselines "${BASELINES}" \
-    --prompts_file data/drawbench/prompts.json \
-    --output_dir outputs/baselines/ \
+    --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/drawbench/prompts.json \
+    --output_dir /blue/ruogu.fang/pateld3/addiffusion/outputs/baselines/ \
     --seeds 42
 
 echo "=== Done: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="

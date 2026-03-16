@@ -13,7 +13,7 @@ module load cuda/12.4.1
 module load gcc/11.4.0
 
 # Activate environment
-cd $SLURM_SUBMIT_DIR
+cd "/blue/ruogu.fang/pateld3/addiffusion/"
 
 # Set caches
 export HF_HOME=/blue/ruogu.fang/pateld3/.cache/huggingface
@@ -29,7 +29,7 @@ echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "Memory: $(nvidia-smi --query-gpu=memory.total --format=csv,noheader)"
 echo ""
 
-uv run python -u tests/test_g1.py 2>&1
+uv run python -u /blue/ruogu.fang/pateld3/addiffusion/tests/test_g1.py 2>&1
 
 echo ""
 echo "Finished: $(date)"

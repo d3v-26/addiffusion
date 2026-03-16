@@ -12,13 +12,13 @@
 
 set -e
 cd "/blue/ruogu.fang/pateld3/addiffusion/"
-mkdir -p logs outputs/tuning/optuna configs
+mkdir -p /blue/ruogu.fang/pateld3/addiffusion/logs /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/optuna /blue/ruogu.fang/pateld3/addiffusion/configs
 
 N_TRIALS=${1:-20}
 
-uv run python ./scripts/optuna_sweep.py \
+uv run python /blue/ruogu.fang/pateld3/addiffusion/scripts/optuna_sweep.py \
     --n_trials "$N_TRIALS" \
     --n_iters 200 \
-    --prompts_file data/coco/prompts_1k.json \
-    --output_dir outputs/tuning/optuna/ \
+    --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/prompts_1k.json \
+    --output_dir /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/optuna/ \
     --study_name reward_sweep
