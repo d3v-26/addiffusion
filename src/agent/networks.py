@@ -65,7 +65,9 @@ class PolicyNetwork(nn.Module):
 
     def get_distribution(self, phi: torch.Tensor) -> Categorical:
         """Get the action distribution for given state features."""
+        phi = phi.nan_to_num(nan=0.0)
         logits = self.forward(phi)
+        logits = logits.nan_to_num(nan=0.0)
         return Categorical(logits=logits)
 
     def get_action(

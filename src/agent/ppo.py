@@ -230,6 +230,11 @@ class PPOTrainer:
                 # Total loss: L = L_policy + c1 * L_value - c2 * H[pi]
                 loss = policy_loss + cfg.value_coeff * value_loss - cfg.entropy_coeff * entropy.mean()
 
+                # Skip non-finite loss (NaN/inf from corrupted state features)
+                if not torch.isfinite(loss):
+                    self.optimizer.zero_grad()
+                    continue
+
                 # Optimize
                 self.optimizer.zero_grad()
                 loss.backward()

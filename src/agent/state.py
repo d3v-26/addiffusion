@@ -93,9 +93,11 @@ class StateExtractor:
         img = TF.normalize(img, mean=[0.48145466, 0.4578275, 0.40821073],
                            std=[0.26862954, 0.26130258, 0.27577711])
 
-        features = clip_model.encode_image(img.to(self.dtype))
-        features = features / features.norm(dim=-1, keepdim=True)
-        return features.float()  # (1, 768)
+        features = clip_model.encode_image(img.to(self.dtype)).float()
+        features = features.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
+        norm = features.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        features = features / norm
+        return features  # (1, 768)
 
     @torch.no_grad()
     def encode_text(self, prompt: str) -> torch.Tensor:
@@ -112,9 +114,10 @@ class StateExtractor:
 
         clip_model, _, tokenizer = self._get_clip()
         tokens = tokenizer([prompt]).to(self.device)
-        features = clip_model.encode_text(tokens)
-        features = features / features.norm(dim=-1, keepdim=True)
-        features = features.float()  # (1, 768)
+        features = clip_model.encode_text(tokens).float()
+        features = features.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0)
+        norm = features.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+        features = features / norm
 
         self._cached_text_features = features
         self._cached_prompt = prompt
