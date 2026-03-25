@@ -200,6 +200,14 @@ class PPOTrainer:
             "n_updates": 0,
         }
 
+        # Detect NaN weights (can happen at high LR) and reinitialize before the update
+        all_params = list(self.policy.parameters()) + list(self.value_net.parameters())
+        if any(not torch.isfinite(p.data).all() for p in all_params):
+            print("[PPO] NaN/Inf weights detected — reinitializing networks.")
+            self.policy._init_weights()
+            self.value_net._init_weights()
+            return metrics
+
         for epoch in range(cfg.ppo_epochs):
             # Generate random mini-batch indices
             indices = torch.randperm(total_steps, device=self.device)
@@ -238,6 +246,16 @@ class PPOTrainer:
                 # Optimize
                 self.optimizer.zero_grad()
                 loss.backward()
+
+                # Skip if any gradient is NaN/Inf — clip_grad_norm_ does not fix NaN grads
+                has_bad_grad = any(
+                    p.grad is not None and not torch.isfinite(p.grad).all()
+                    for p in list(self.policy.parameters()) + list(self.value_net.parameters())
+                )
+                if has_bad_grad:
+                    self.optimizer.zero_grad()
+                    continue
+
                 nn.utils.clip_grad_norm_(
                     list(self.policy.parameters()) + list(self.value_net.parameters()),
                     cfg.max_grad_norm,
