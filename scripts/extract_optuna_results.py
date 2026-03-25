@@ -20,7 +20,8 @@ from pathlib import Path as _Path
 sys.path.insert(0, str(_Path(__file__).resolve().parent.parent))
 
 import optuna
-from optuna.storages import JournalStorage, JournalFileBackend
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
 
 from scripts.optuna_sweep import save_top3_yaml, save_study_summary
 

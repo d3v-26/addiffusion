@@ -29,7 +29,8 @@ import traceback
 import torch
 
 import optuna
-from optuna.storages import JournalStorage, JournalFileBackend
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
 
 from src.agent.episode import EpisodeRunner
 from src.agent.networks import PolicyNetwork, ValueNetwork
