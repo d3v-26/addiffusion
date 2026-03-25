@@ -180,63 +180,77 @@ def run_trial(
     rewards_per_iter: list[float] = []
     nfe_per_iter: list[float] = []
 
-    for iteration in range(n_iters):
-        batch_prompts = random.sample(prompts, min(BATCH_SIZE, len(prompts)))
-        episodes = []
+    try:
+        for iteration in range(n_iters):
+            batch_prompts = random.sample(prompts, min(BATCH_SIZE, len(prompts)))
+            episodes = []
 
-        for i, prompt in enumerate(batch_prompts):
+            for i, prompt in enumerate(batch_prompts):
+                try:
+                    ep = episode_runner.run_episode(
+                        prompt=prompt,
+                        policy=policy,
+                        value_net=value_net,
+                        num_steps=50,
+                        seed=seed + iteration * BATCH_SIZE + i,
+                        reward_fn=reward_fn,
+                    )
+                    episodes.append(ep)
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        print(f"  [OOM] iter={iteration}, prompt_idx={i} — skipping.")
+                        torch.cuda.empty_cache()
+                    else:
+                        print(f"  [ERROR] iter={iteration}: {e}")
+                        traceback.print_exc()
+
+            if not episodes:
+                rewards_per_iter.append(float("nan"))
+                nfe_per_iter.append(float("nan"))
+                continue
+
             try:
-                ep = episode_runner.run_episode(
-                    prompt=prompt,
-                    policy=policy,
-                    value_net=value_net,
-                    num_steps=50,
-                    seed=seed + iteration * BATCH_SIZE + i,
-                    reward_fn=reward_fn,
+                traj_batch = episodes_to_batch(
+                    episodes, gamma=ppo_config.gamma_d, lam=ppo_config.gae_lambda
                 )
-                episodes.append(ep)
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    print(f"  [OOM] iter={iteration}, prompt_idx={i} — skipping.")
-                    torch.cuda.empty_cache()
-                else:
-                    print(f"  [ERROR] iter={iteration}: {e}")
-                    traceback.print_exc()
+                trainer.update(traj_batch)
+            except (ValueError, RuntimeError) as e:
+                print(f"  [TRAIN ERROR] iter={iteration}: {e}")
 
-        if not episodes:
-            rewards_per_iter.append(float("nan"))
-            nfe_per_iter.append(float("nan"))
-            continue
+            ep_rewards = [
+                sum(t.reward for t in ep.transitions)
+                for ep in episodes
+                if ep.transitions
+            ]
+            ep_nfes = [ep.total_nfe for ep in episodes]
 
-        try:
-            traj_batch = episodes_to_batch(
-                episodes, gamma=ppo_config.gamma_d, lam=ppo_config.gae_lambda
-            )
-            trainer.update(traj_batch)
-        except (ValueError, RuntimeError) as e:
-            print(f"  [TRAIN ERROR] iter={iteration}: {e}")
+            mean_reward = sum(ep_rewards) / len(ep_rewards) if ep_rewards else float("nan")
+            mean_nfe = sum(ep_nfes) / len(ep_nfes) if ep_nfes else float("nan")
 
-        ep_rewards = [
-            sum(t.reward for t in ep.transitions)
-            for ep in episodes
-            if ep.transitions
-        ]
-        ep_nfes = [ep.total_nfe for ep in episodes]
+            rewards_per_iter.append(mean_reward)
+            nfe_per_iter.append(mean_nfe)
 
-        mean_reward = sum(ep_rewards) / len(ep_rewards) if ep_rewards else float("nan")
-        mean_nfe = sum(ep_nfes) / len(ep_nfes) if ep_nfes else float("nan")
+            if (iteration + 1) % 50 == 0:
+                print(
+                    f"    iter {iteration + 1}/{n_iters}  "
+                    f"mean_reward={mean_reward:.4f}  mean_nfe={mean_nfe:.1f}"
+                )
+    finally:
+        attention_extractor.remove_hooks()
 
-        rewards_per_iter.append(mean_reward)
-        nfe_per_iter.append(mean_nfe)
-
-        if (iteration + 1) % 50 == 0:
-            print(
-                f"    iter {iteration + 1}/{n_iters}  "
-                f"mean_reward={mean_reward:.4f}  mean_nfe={mean_nfe:.1f}"
-            )
-
-    attention_extractor.remove_hooks()
     return rewards_per_iter, nfe_per_iter
+
+
+def make_save_callback(top3_path: str, summary_path: str):
+    """Return an Optuna callback that saves results after every completed trial."""
+    def callback(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
+        if trial.state == optuna.trial.TrialState.COMPLETE:
+            try:
+                save_top3_yaml(study, top3_path)
+                save_study_summary(study, summary_path)
+            except Exception as e:
+                print(f"[optuna] Warning: could not save checkpoint after trial {trial.number}: {e}")
+    return callback
 
 
 def build_objective(
@@ -279,14 +293,19 @@ def build_objective(
             f"c_nfe={c_nfe:.4f}"
         )
 
-        rewards, _ = run_trial(
-            reward_config=reward_config,
-            prompts=prompts,
-            n_iters=n_iters,
-            device=device,
-            seed=trial_seed,
-            pipeline=pipeline,
-        )
+        try:
+            rewards, _ = run_trial(
+                reward_config=reward_config,
+                prompts=prompts,
+                n_iters=n_iters,
+                device=device,
+                seed=trial_seed,
+                pipeline=pipeline,
+            )
+        except Exception as e:
+            print(f"[optuna] Trial {trial.number} raised exception: {e}")
+            traceback.print_exc()
+            return float("-inf")
 
         mean_r, std_r = final_50_stats(rewards)
         if mean_r != mean_r:  # nan check
@@ -415,6 +434,10 @@ def main() -> None:
         load_if_exists=True,  # Resume interrupted runs
     )
 
+    # Compute output paths before starting trials so the callback can use them
+    top3_path = os.path.join(configs_dir, "optuna_top3.yaml")
+    summary_path = os.path.join(args.output_dir, "study_summary.json")
+
     objective = build_objective(
         prompts=prompts,
         n_iters=args.n_iters,
@@ -424,19 +447,20 @@ def main() -> None:
     )
 
     print(f"[optuna] Starting study '{args.study_name}' — {args.n_trials} trials.")
-    study.optimize(objective, n_trials=args.n_trials)
+    study.optimize(
+        objective,
+        n_trials=args.n_trials,
+        callbacks=[make_save_callback(top3_path, summary_path)],
+    )
 
     print(f"\n[optuna] Best trial: #{study.best_trial.number}")
     print(f"  Objective: {study.best_trial.value:.4f}")
     print(f"  Params: {study.best_trial.params}")
 
-    # Save top-3 YAML
-    top3_path = os.path.join(configs_dir, "optuna_top3.yaml")
+    # Final save (also written after each trial via callback, but redo here for safety)
     save_top3_yaml(study, top3_path)
     print(f"[optuna] Saved top-3 configs to {top3_path}")
 
-    # Save full study summary JSON
-    summary_path = os.path.join(args.output_dir, "study_summary.json")
     save_study_summary(study, summary_path)
     print(f"[optuna] Saved study summary to {summary_path}")
 
