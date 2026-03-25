@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--study_name",
         type=str,
-        default="reward_sweep",
+        default="reward_sweep_v2",
         help="Optuna study name (used for resuming).",
     )
     parser.add_argument("--seed", type=int, default=42, help="Global random seed.")
@@ -265,9 +265,9 @@ def build_objective(
 
     def objective(trial: optuna.Trial) -> float:
         # Search space (exact values from spec)
-        alpha_1 = trial.suggest_float("alpha_1", 0.5, 3.0)
+        alpha_1 = trial.suggest_float("alpha_1", 0.5, 4.0)
         alpha_2 = trial.suggest_float("alpha_2", 0.1, 1.5)
-        alpha_3 = trial.suggest_float("alpha_3", 0.05, 0.5)
+        alpha_3 = trial.suggest_float("alpha_3", 0.05, 0.8)
         alpha_4 = trial.suggest_float("alpha_4", 0.3, 2.0)
         c_nfe   = trial.suggest_float("c_nfe", 0.005, 0.05, log=True)
         beta_1  = trial.suggest_float("beta_1", 1.0, 4.0)

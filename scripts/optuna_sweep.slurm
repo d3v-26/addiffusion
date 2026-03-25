@@ -21,5 +21,5 @@ uv run python /blue/ruogu.fang/pateld3/addiffusion/scripts/optuna_sweep.py \
     --n_iters 200 \
     --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/annotations/captions_train2014.json \
     --output_dir /blue/ruogu.fang/pateld3/addiffusion/outputs/tuning/optuna/ \
-    --study_name reward_sweep \
+    --study_name reward_sweep_v2 \
     --max_prompts 1000

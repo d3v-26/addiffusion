@@ -92,6 +92,18 @@ class RewardComputer:
             self._dino_model = self._dino_model.to(self.device).eval()
         return self._dino_model
 
+    def _load_aesthetic(self):
+        if self._aesthetic_model is None:
+            try:
+                model = torch.hub.load(
+                    "christophschuhmann/improved-aesthetic-predictor",
+                    "improved_aesthetic_predictor",
+                )
+                self._aesthetic_model = model.to(self.device).eval()
+            except Exception as e:
+                print(f"[RewardComputer] Aesthetic model unavailable: {e}")
+        return self._aesthetic_model
+
     @torch.no_grad()
     def clip_score(self, image: torch.Tensor, prompt: str) -> float:
         """Compute CLIP similarity between image and prompt.
@@ -169,6 +181,31 @@ class RewardComputer:
         sim = F.cosine_similarity(f1, f2, dim=-1).item()
         return max(0.0, sim)  # Clamp to [0, 1]
 
+    @torch.no_grad()
+    def aesthetic_score(self, image: torch.Tensor) -> float:
+        """Compute LAION aesthetic score for an image.
+
+        Uses normalized CLIP ViT-L/14 embeddings as input to the aesthetic
+        predictor. Returns 0.0 gracefully if the model is unavailable.
+
+        Args:
+            image: (1, 3, H, W) in [0, 1].
+
+        Returns:
+            Aesthetic score (scalar).
+        """
+        aesthetic_model = self._load_aesthetic()
+        if aesthetic_model is None:
+            return 0.0
+        clip_model, _, _ = self._load_clip()
+        import torchvision.transforms.functional as TF
+        img = TF.resize(image, [224, 224], antialias=True)
+        img = TF.normalize(img, mean=[0.48145466, 0.4578275, 0.40821073],
+                           std=[0.26862954, 0.26130258, 0.27577711])
+        img_features = clip_model.encode_image(img.to(device=self.device, dtype=torch.float32))
+        img_features = img_features / img_features.norm(dim=-1, keepdim=True)
+        return aesthetic_model(img_features).item()
+
     def compute_quality_reward(
         self,
         prev_image: Optional[torch.Tensor],
@@ -176,6 +213,7 @@ class RewardComputer:
         prompt: str,
         prev_clip: Optional[float] = None,
         prev_ir: Optional[float] = None,
+        prev_aesthetic: Optional[float] = None,
     ) -> tuple[float, dict]:
         """Compute R_quality for a single step.
 
@@ -188,6 +226,7 @@ class RewardComputer:
             prompt: Text prompt.
             prev_clip: Previous CLIP score (for caching).
             prev_ir: Previous ImageReward score (for caching).
+            prev_aesthetic: Previous aesthetic score (for caching).
 
         Returns:
             reward: Float quality reward.
@@ -198,8 +237,9 @@ class RewardComputer:
         # Current scores
         curr_clip = self.clip_score(curr_image, prompt)
         curr_ir = self.image_reward_score(curr_image, prompt)
+        curr_aesthetic = self.aesthetic_score(curr_image)
 
-        metrics = {"clip_score": curr_clip, "image_reward": curr_ir}
+        metrics = {"clip_score": curr_clip, "image_reward": curr_ir, "aesthetic_score": curr_aesthetic}
 
         if prev_image is None:
             # First step — no delta available
@@ -210,10 +250,13 @@ class RewardComputer:
             prev_clip = self.clip_score(prev_image, prompt)
         if prev_ir is None:
             prev_ir = self.image_reward_score(prev_image, prompt)
+        if prev_aesthetic is None:
+            prev_aesthetic = self.aesthetic_score(prev_image)
 
         # Deltas
         delta_clip = curr_clip - prev_clip
         delta_ir = curr_ir - prev_ir
+        delta_aesthetic = curr_aesthetic - prev_aesthetic
 
         # Stability (D-11: similarity, not delta)
         r_stability = self.dino_similarity(prev_image, curr_image)
@@ -223,13 +266,11 @@ class RewardComputer:
         if cfg.normalize:
             delta_clip_norm = delta_clip / cfg.clip_norm
             delta_ir_norm = delta_ir / cfg.image_reward_norm
+            delta_aesthetic_norm = delta_aesthetic / cfg.aesthetic_norm
         else:
             delta_clip_norm = delta_clip
             delta_ir_norm = delta_ir
-
-        # Note: aesthetic delta omitted for now (requires LAION aesthetic model)
-        # Can be added when aesthetic model is loaded
-        delta_aesthetic_norm = 0.0
+            delta_aesthetic_norm = delta_aesthetic
 
         # Weighted sum
         reward = (
@@ -242,6 +283,8 @@ class RewardComputer:
         metrics.update({
             "delta_clip": delta_clip,
             "delta_clip_norm": delta_clip_norm,
+            "delta_aesthetic": delta_aesthetic,
+            "delta_aesthetic_norm": delta_aesthetic_norm,
             "delta_ir": delta_ir,
             "delta_ir_norm": delta_ir_norm,
             "r_quality": reward,
@@ -277,12 +320,13 @@ class RewardComputer:
 
         clip = self.clip_score(image, prompt)
         ir = self.image_reward_score(image, prompt)
+        aesthetic = self.aesthetic_score(image)
 
-        reward = cfg.beta_1 * clip + cfg.beta_3 * ir
-        # Aesthetic term omitted (same as quality reward — add when model loaded)
+        reward = cfg.beta_1 * clip + cfg.beta_2 * aesthetic + cfg.beta_3 * ir
 
         metrics = {
             "terminal_clip": clip,
+            "terminal_aesthetic": aesthetic,
             "terminal_ir": ir,
             "r_terminal": reward,
         }
@@ -297,13 +341,14 @@ class RewardComputer:
         is_terminal: bool,
         prev_clip: Optional[float] = None,
         prev_ir: Optional[float] = None,
+        prev_aesthetic: Optional[float] = None,
     ) -> tuple[float, dict]:
         """Compute total reward R = R_quality + R_efficiency + R_terminal.
 
         D-13: No outer lambda weights. Sum directly.
         """
         r_quality, q_metrics = self.compute_quality_reward(
-            prev_image, curr_image, prompt, prev_clip, prev_ir,
+            prev_image, curr_image, prompt, prev_clip, prev_ir, prev_aesthetic,
         )
         r_efficiency = self.compute_efficiency_reward(action)
 
