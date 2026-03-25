@@ -45,4 +45,5 @@ wandb/
 # Local setup files, change before sharing
 setup_guide.md
 research.md
-
+design.md
+resultslt.md
