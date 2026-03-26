@@ -17,7 +17,7 @@ agent:
   use_quality_features: true
 
 ppo:
-  lr: 3e-4
+  lr: 1e-4  # Updated from tune_lr sweep (1e-4 > 3e-4 > 1e-3 by final reward)
   batch_size: 64  # Trajectories per PPO update
   gamma_d: 0.99  # Discount factor (D-09: not gamma)
   gae_lambda: 0.95

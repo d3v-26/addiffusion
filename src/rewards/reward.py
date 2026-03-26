@@ -53,6 +53,26 @@ class RewardConfig:
     normalize: bool = True
 
 
+class _AestheticMLP(torch.nn.Module):
+    """LAION improved aesthetic predictor MLP (input: 768-d CLIP ViT-L/14 embedding)."""
+
+    def __init__(self):
+        super().__init__()
+        self.layers = torch.nn.Sequential(
+            torch.nn.Linear(768, 1024),
+            torch.nn.Dropout(0.2),
+            torch.nn.Linear(1024, 128),
+            torch.nn.Dropout(0.2),
+            torch.nn.Linear(128, 64),
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(64, 16),
+            torch.nn.Linear(16, 1),
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+
 class RewardComputer:
     """Computes per-step rewards for the agent.
 
@@ -94,14 +114,32 @@ class RewardComputer:
 
     def _load_aesthetic(self):
         if self._aesthetic_model is None:
-            try:
-                model = torch.hub.load(
-                    "christophschuhmann/improved-aesthetic-predictor",
-                    "improved_aesthetic_predictor",
+            import os
+            hub_dir = torch.hub.get_dir()
+            # Check both the cloned-repo location and the standard checkpoints dir
+            candidates = [
+                os.path.join(hub_dir, "christophschuhmann_improved-aesthetic-predictor_main", "sac+logos+ava1-l14-linearMSE.pth"),
+                os.path.join(hub_dir, "checkpoints", "sac+logos+ava1-l14-linearMSE.pth"),
+            ]
+            cache_path = next((p for p in candidates if os.path.exists(p)), candidates[1])
+            if not os.path.exists(cache_path):
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                url = (
+                    "https://github.com/christophschuhmann/improved-aesthetic-predictor"
+                    "/blob/main/sac+logos+ava1-l14-linearMSE.pth?raw=true"
                 )
+                try:
+                    torch.hub.download_url_to_file(url, cache_path)
+                except Exception as e:
+                    print(f"[RewardComputer] Aesthetic model unavailable: {e}")
+                    return None
+            try:
+                model = _AestheticMLP()
+                state = torch.load(cache_path, map_location="cpu")
+                model.load_state_dict(state)
                 self._aesthetic_model = model.to(self.device).eval()
             except Exception as e:
-                print(f"[RewardComputer] Aesthetic model unavailable: {e}")
+                print(f"[RewardComputer] Aesthetic model load failed: {e}")
         return self._aesthetic_model
 
     @torch.no_grad()
