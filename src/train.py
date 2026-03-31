@@ -15,8 +15,11 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import torch
 import yaml
@@ -168,7 +171,7 @@ def train(cfg: dict):
     ).to(device).float()
 
     ppo_cfg = PPOConfig(
-        lr=cfg["ppo"]["lr"],
+        lr=float(cfg["ppo"]["lr"]),
         gamma_d=cfg["ppo"]["gamma_d"],
         gae_lambda=cfg["ppo"]["gae_lambda"],
         clip_epsilon=cfg["ppo"]["clip_epsilon"],

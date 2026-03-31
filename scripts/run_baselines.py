@@ -111,6 +111,52 @@ def _parse_seeds(seeds_str: str, n_prompts: int) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
+# Prompts loader
+# ---------------------------------------------------------------------------
+
+def _load_prompts(path: str) -> list[str]:
+    """Load prompts from a JSON array, JSONL, or COCO captions file.
+
+    Handles:
+    - JSON array of strings: ["prompt1", "prompt2"]
+    - JSONL (HuggingFace to_json default): {"Prompts": "..."} per line
+    - COCO captions dict: {"annotations": [{"caption": "..."}]}
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        first_char = f.read(1)
+        f.seek(0)
+
+        if first_char == "[":
+            data = json.load(f)
+            return [str(p) for p in data]
+
+        if first_char == "{":
+            try:
+                data = json.load(f)
+                if "annotations" in data:
+                    return [ann["caption"] for ann in data["annotations"]]
+                for key in ("Prompts", "prompt", "caption", "text"):
+                    if key in data:
+                        return [str(data[key])]
+            except json.JSONDecodeError:
+                f.seek(0)
+
+        # JSONL: one JSON object per line
+        f.seek(0)
+        prompts = []
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            record = json.loads(line)
+            for key in ("Prompts", "prompt", "caption", "text"):
+                if key in record:
+                    prompts.append(str(record[key]))
+                    break
+        return prompts
+
+
+# ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
 
@@ -209,9 +255,7 @@ def main() -> None:
         device = args.device
 
     # Load prompts
-    with open(args.prompts_file, "r", encoding="utf-8") as f:
-        prompts: list[str] = json.load(f)
-
+    prompts = _load_prompts(args.prompts_file)
     print(f"[run_baselines] Loaded {len(prompts)} prompts from {args.prompts_file}")
 
     # Parse baseline names
