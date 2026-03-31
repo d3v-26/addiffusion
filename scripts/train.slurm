@@ -33,6 +33,6 @@ uv run python /blue/ruogu.fang/pateld3/addiffusion/src/train.py \
     --config /blue/ruogu.fang/pateld3/addiffusion/configs/default.yaml \
     training.total_iterations=2000 \
     training.seed=42 \
-    logging.use_wandb=true
+    ppo.batch_size=8
 
 echo "Training finished at $(date)"

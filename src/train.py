@@ -239,10 +239,12 @@ def train(cfg: dict):
                     is_terminal=is_terminal,
                     prev_clip=_prev.get("clip_score"),
                     prev_ir=_prev.get("image_reward"),
+                    prev_aesthetic=_prev.get("aesthetic_score"),
                 )
                 _prev["prev_decoded"] = decoded_image
                 _prev["clip_score"] = metrics.get("clip_score")
                 _prev["image_reward"] = metrics.get("image_reward")
+                _prev["aesthetic_score"] = metrics.get("aesthetic_score")
                 return reward
 
             ep = runner.run_episode(

@@ -30,23 +30,31 @@ ppo:
 
 reward:
   # Quality delta weights
-  alpha_1: 1.0   # CLIP delta
-  alpha_2: 0.5   # Aesthetic delta
-  alpha_3: 0.2   # Stability (DINO sim, D-11)
-  alpha_4: 0.8   # ImageReward delta
+  # Updated from Optuna sweep (47 trials, best=trial #13, objective=55.47)
+  # Sweep found CLIP and stability are far more important than research.md defaults assumed.
+  # Old: alpha_1=1.0, alpha_2=0.5, alpha_3=0.2, alpha_4=0.8 (research.md §3.6 priors)
+  alpha_1: 2.977  # CLIP delta        (was 1.0 — tripled; CLIP alignment is the dominant signal)
+  alpha_2: 1.430  # Aesthetic delta   (was 0.5 — doubled; aesthetic improvement matters more than expected)
+  alpha_3: 0.791  # Stability (DINO sim, D-11)  (was 0.2 — quadrupled; temporal consistency is critical for stop decisions)
+  alpha_4: 0.870  # ImageReward delta (was 0.8 — nearly unchanged; prior was already well-calibrated)
 
-  # Normalization scales (D-37)
+  # Normalization scales (D-37) — unchanged, these are fixed by metric ranges not tuned
   clip_norm: 0.05
   aesthetic_norm: 0.3
   image_reward_norm: 0.2
 
   # Efficiency (D-09: c_nfe not gamma)
-  c_nfe: 0.01
+  # Old: 0.01 (research.md §3.6 prior) — slight increase allows agent to be marginally more
+  # aggressive about penalising extra steps without collapsing to always-stop.
+  c_nfe: 0.01355
 
-  # Terminal
-  beta_1: 2.0  # CLIP
-  beta_2: 1.0  # Aesthetic
-  beta_3: 1.5  # ImageReward
+  # Terminal reward weights
+  # Sweep shifted weight from ImageReward toward CLIP — final image prompt alignment
+  # is a stronger training signal than holistic human preference at this scale.
+  # Old: beta_1=2.0, beta_2=1.0, beta_3=1.5 (research.md §3.6 priors)
+  beta_1: 3.105  # CLIP        (was 2.0 — increased; terminal CLIP is the clearest success signal)
+  beta_2: 1.349  # Aesthetic   (was 1.0 — modest increase)
+  beta_3: 0.643  # ImageReward (was 1.5 — halved; IR is noisy at short training runs, sweep deprioritised it)
 
   normalize: true  # D-37
 
