@@ -31,24 +31,24 @@ dependencies = [
     "stable-baselines3>=2.7.1",
     "tensorboard>=2.20.0",
     "timm>=0.6.13",
-    "torch==2.6.0",
+    "torch==2.7.0",
     "torch-fidelity>=0.3.0",
-    "torchaudio==2.6.0",
-    "torchvision==0.21.0",
+    "torchaudio==2.7.0",
+    "torchvision==0.22.0",
     "tqdm>=4.67.2",
     "transformers==4.48.1",
     "wandb>=0.24.1",
-    "xformers==0.0.29.post2",
+    "xformers==0.0.30",
     "numpy<2",
     "openai>=1.0.0",
 ]
 
 [[tool.uv.index]]
-name = "pytorch-cu124"
-url = "https://download.pytorch.org/whl/cu124"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true   # CRITICAL: only use this index for packages explicitly mapped below
 
 [tool.uv.sources]
-torch = [{ index = "pytorch-cu124" }]
-torchvision = [{ index = "pytorch-cu124" }]
-torchaudio = [{ index = "pytorch-cu124" }]
+torch = [{ index = "pytorch-cu128" }]
+torchvision = [{ index = "pytorch-cu128" }]
+torchaudio = [{ index = "pytorch-cu128" }]
