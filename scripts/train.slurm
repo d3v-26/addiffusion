@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=addiffusion-train
 #SBATCH --partition=hpg-turin
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=48:00:00
@@ -14,6 +14,9 @@ module load gcc/11.4.0
 
 # Activate environment
 cd "/blue/ruogu.fang/pateld3/addiffusion/"
+
+# Unbuffered Python output (flush print() immediately, not just at buffer fill)
+export PYTHONUNBUFFERED=1
 
 # Set HF cache
 export HF_HOME=/blue/ruogu.fang/pateld3/.cache/huggingface
