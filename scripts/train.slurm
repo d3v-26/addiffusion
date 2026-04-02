@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=addiffusion-train
-#SBATCH --partition=hpg-turin
+#SBATCH --partition=hpg-b200
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -32,7 +32,7 @@ echo "Job ID: $SLURM_JOB_ID"
 echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader)"
 echo "Memory: $(nvidia-smi --query-gpu=memory.total --format=csv,noheader)"
 
-uv run python /blue/ruogu.fang/pateld3/addiffusion/src/train.py \
+uv run python -u /blue/ruogu.fang/pateld3/addiffusion/src/train.py \
     --config /blue/ruogu.fang/pateld3/addiffusion/configs/default.yaml \
     training.total_iterations=2000 \
     training.seed=42 \
