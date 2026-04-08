@@ -155,6 +155,9 @@ def train(cfg: dict):
         image_reward_norm=cfg["reward"]["image_reward_norm"],
         normalize=cfg["reward"]["normalize"],
         refine_k=cfg["refinement"]["k"],
+        c_save=cfg["reward"].get("c_save", 1.0),
+        c_refine=cfg["reward"].get("c_refine", 0.2),
+        baseline_scores_path=cfg["reward"].get("baseline_scores_path", None),
     )
     reward_computer = RewardComputer(config=reward_cfg, device=device)
 
@@ -175,13 +178,18 @@ def train(cfg: dict):
         gamma_d=cfg["ppo"]["gamma_d"],
         gae_lambda=cfg["ppo"]["gae_lambda"],
         clip_epsilon=cfg["ppo"]["clip_epsilon"],
-        entropy_coeff=cfg["ppo"]["entropy_coeff"],
+        entropy_coeff=cfg["ppo"].get("entropy_coeff", cfg["ppo"].get("entropy_coeff_end", 0.01)),
         value_coeff=cfg["ppo"]["value_coeff"],
         max_grad_norm=cfg["ppo"]["max_grad_norm"],
         ppo_epochs=cfg["ppo"]["ppo_epochs"],
         mini_batch_size=cfg["ppo"]["mini_batch_size"],
     )
     trainer = PPOTrainer(policy, value_net, config=ppo_cfg, device=device)
+
+    # Entropy annealing schedule: high entropy early to prevent always-continue collapse
+    _entropy_start = cfg["ppo"].get("entropy_coeff_start", 0.05)
+    _entropy_end = cfg["ppo"].get("entropy_coeff_end", 0.01)
+    _entropy_anneal_steps = cfg["ppo"].get("entropy_anneal_steps", 500)
 
     # Episode runner
     runner = EpisodeRunner(
@@ -232,7 +240,8 @@ def train(cfg: dict):
             # Create reward function closure
             prev_metrics = {}
 
-            def reward_fn(prev_z0, curr_z0, action, step_index, n_max, is_terminal, prompt, decoded_image, _prev=prev_metrics):
+            def reward_fn(prev_z0, curr_z0, action, step_index, n_max, is_terminal, prompt, decoded_image,
+                          nfe_used=50, attention_entropy=0.0, _prev=prev_metrics):
                 prev_img = _prev.get("prev_decoded")
                 reward, metrics = reward_computer.compute_reward(
                     prev_image=prev_img,
@@ -240,6 +249,9 @@ def train(cfg: dict):
                     prompt=prompt,
                     action=action,
                     is_terminal=is_terminal,
+                    nfe_used=nfe_used,
+                    n_max=n_max,
+                    attention_entropy=attention_entropy,
                     prev_clip=_prev.get("clip_score"),
                     prev_ir=_prev.get("image_reward"),
                     prev_aesthetic=_prev.get("aesthetic_score"),
@@ -266,7 +278,8 @@ def train(cfg: dict):
         batch = episodes_to_batch(episodes, gamma=ppo_cfg.gamma_d, lam=ppo_cfg.gae_lambda)
 
         # PPO update
-        ppo_metrics = trainer.update(batch)
+        _entropy_coeff = _entropy_start if iteration < _entropy_anneal_steps else _entropy_end
+        ppo_metrics = trainer.update(batch, override_entropy_coeff=_entropy_coeff)
 
         iter_time = time.time() - iter_start
 
