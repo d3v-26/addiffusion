@@ -192,6 +192,82 @@ def test_compute_attention_entropy_range():
     print("[PASS] Attention entropy always in [0, 1]")
 
 
+def test_terminal_reward_with_baselines():
+    """Terminal reward is normalized relative to DDIM-20/50 baselines."""
+    cfg = RewardConfig(
+        beta_1=3.105, beta_2=1.349, beta_3=0.643,
+        c_save=1.0,
+        baseline_scores_path=None,
+    )
+    rc = RewardComputer(config=cfg, device="cpu")
+
+    # Inject baseline scores directly (bypassing file load)
+    rc.baseline_scores = {
+        "a cat": {
+            "ddim20": {"clip": 0.30, "aesthetic": 5.0, "image_reward": 0.40},
+            "ddim50": {"clip": 0.35, "aesthetic": 5.5, "image_reward": 0.60},
+        }
+    }
+
+    fake_image = torch.rand(1, 3, 64, 64)
+
+    # Mock score methods so we control the values
+    rc.clip_score = lambda img, prompt: 0.35
+    rc.image_reward_score = lambda img, prompt: 0.60
+    rc.aesthetic_score = lambda img: 5.5
+
+    reward, metrics = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=25, n_max=50)
+
+    # Quality term: each metric normalized to 1.0 (matches DDIM-50)
+    # beta_1 * 1.0 + beta_2 * 1.0 + beta_3 * 1.0 = 3.105 + 1.349 + 0.643 = 5.097
+    expected_quality = cfg.beta_1 + cfg.beta_2 + cfg.beta_3
+    # Step savings: 1.0 * (50 - 25) / 50 = 0.5
+    expected_savings = 1.0 * (50 - 25) / 50
+    expected_total = expected_quality + expected_savings
+
+    assert abs(metrics["terminal_quality_term"] - expected_quality) < 1e-3, \
+        f"Quality term: expected {expected_quality:.3f}, got {metrics['terminal_quality_term']:.3f}"
+    assert abs(metrics["terminal_step_savings"] - expected_savings) < 1e-3, \
+        f"Step savings: expected {expected_savings:.3f}, got {metrics['terminal_step_savings']:.3f}"
+    assert abs(reward - expected_total) < 1e-3, \
+        f"Total: expected {expected_total:.3f}, got {reward:.3f}"
+    print(f"[PASS] Terminal reward (DDIM-50 quality, 25 steps saved): {reward:.3f}")
+
+
+def test_terminal_reward_fallback_no_baseline():
+    """When prompt not in baseline_scores, uses score_ddim20=0, norm=1 (absolute scores)."""
+    cfg = RewardConfig(beta_1=1.0, beta_2=0.0, beta_3=0.0, c_save=0.0, baseline_scores_path=None)
+    rc = RewardComputer(config=cfg, device="cpu")
+    rc.baseline_scores = {}  # empty — prompt will be missing
+
+    fake_image = torch.rand(1, 3, 64, 64)
+    rc.clip_score = lambda img, prompt: 0.5
+    rc.image_reward_score = lambda img, prompt: 0.0
+    rc.aesthetic_score = lambda img: 0.0
+
+    reward, metrics = rc.compute_terminal_reward(fake_image, "unseen prompt", nfe_used=50, n_max=50)
+    # Fallback: ddim20={"clip":0.0,...}, ddim50={"clip":1.0,...}
+    # norm(0.5, 0.0, 1.0) = 0.5; beta_1=1.0 → quality_term=0.5; c_save=0 → savings=0
+    assert abs(metrics["terminal_quality_term"] - 0.5) < 1e-3, \
+        f"Fallback quality term: expected 0.5, got {metrics['terminal_quality_term']:.3f}"
+    print(f"[PASS] Fallback terminal reward for unseen prompt: {reward:.3f}")
+
+
+def test_refine_bonus():
+    """Refine bonus = c_refine * attention_entropy."""
+    cfg = RewardConfig(c_refine=0.2)
+    rc = RewardComputer(config=cfg, device="cpu")
+
+    bonus_high = rc.compute_refine_bonus(attention_entropy=1.0)
+    bonus_low = rc.compute_refine_bonus(attention_entropy=0.0)
+    bonus_mid = rc.compute_refine_bonus(attention_entropy=0.5)
+
+    assert abs(bonus_high - 0.2) < 1e-6, f"Expected 0.2, got {bonus_high}"
+    assert abs(bonus_low - 0.0) < 1e-6, f"Expected 0.0, got {bonus_low}"
+    assert abs(bonus_mid - 0.1) < 1e-6, f"Expected 0.1, got {bonus_mid}"
+    print(f"[PASS] Refine bonus: high={bonus_high:.2f}, mid={bonus_mid:.2f}, low={bonus_low:.2f}")
+
+
 if __name__ == "__main__":
     model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
     if len(sys.argv) > 1:

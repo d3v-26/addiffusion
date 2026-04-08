@@ -124,6 +124,18 @@ class RewardComputer:
         self._aesthetic_model = None
         self._dino_model = None
 
+        # Load baseline scores (DDIM-20 and DDIM-50) for terminal reward normalization
+        self.baseline_scores: dict = {}
+        if config.baseline_scores_path is not None:
+            import json as _json
+            try:
+                with open(config.baseline_scores_path) as f:
+                    self.baseline_scores = _json.load(f)
+                print(f"[RewardComputer] Loaded baseline scores for {len(self.baseline_scores)} prompts")
+            except FileNotFoundError:
+                print(f"[RewardComputer] WARNING: baseline_scores_path={config.baseline_scores_path} not found. "
+                      f"Terminal reward will use fallback (unnormalized absolute scores).")
+
     def _load_clip(self):
         if self._clip_model is None:
             import open_clip
@@ -383,27 +395,62 @@ class RewardComputer:
         return -self.config.c_nfe * nfe
 
     def compute_terminal_reward(
-        self, image: torch.Tensor, prompt: str
+        self,
+        image: torch.Tensor,
+        prompt: str,
+        nfe_used: int = 50,
+        n_max: int = 50,
     ) -> tuple[float, dict]:
         """Compute R_terminal for the final image.
 
-        R_final = beta_1 * CLIP + beta_2 * Aesthetic + beta_3 * ImageReward
+        R_terminal = sum(beta_k * (score_agent_k - ddim20_k) / max(ddim50_k - ddim20_k, eps))
+                   + c_save * (n_max - nfe_used) / n_max
+
+        Quality term is 0 when agent matches DDIM-20, 1 when it matches DDIM-50.
+        Step savings term rewards early stopping proportional to steps saved.
+        Falls back to unnormalized absolute scores when prompt not in baseline_scores.
         """
         cfg = self.config
+        eps = 1e-6
 
         clip = self.clip_score(image, prompt)
         ir = self.image_reward_score(image, prompt)
         aesthetic = self.aesthetic_score(image)
 
-        reward = cfg.beta_1 * clip + cfg.beta_2 * aesthetic + cfg.beta_3 * ir
+        # Lookup baseline scores — fallback: ddim20=0, ddim50=1 → unnormalized absolute
+        baseline = self.baseline_scores.get(prompt, {})
+        ddim20 = baseline.get("ddim20", {"clip": 0.0, "aesthetic": 0.0, "image_reward": 0.0})
+        ddim50 = baseline.get("ddim50", {"clip": 1.0, "aesthetic": 1.0, "image_reward": 1.0})
+
+        def norm(score: float, low: float, high: float) -> float:
+            return (score - low) / max(high - low, eps)
+
+        quality_term = (
+            cfg.beta_1 * norm(clip, ddim20["clip"], ddim50["clip"])
+            + cfg.beta_2 * norm(aesthetic, ddim20["aesthetic"], ddim50["aesthetic"])
+            + cfg.beta_3 * norm(ir, ddim20["image_reward"], ddim50["image_reward"])
+        )
+        step_savings = cfg.c_save * (n_max - nfe_used) / max(n_max, 1)
+        reward = quality_term + step_savings
 
         metrics = {
             "terminal_clip": clip,
             "terminal_aesthetic": aesthetic,
             "terminal_ir": ir,
+            "terminal_quality_term": quality_term,
+            "terminal_step_savings": step_savings,
             "r_terminal": reward,
         }
         return reward, metrics
+
+    def compute_refine_bonus(self, attention_entropy: float) -> float:
+        """Compute per-step refine bonus based on attention entropy.
+
+        R_refine_bonus = c_refine * H  where H ∈ [0, 1] is normalized attention entropy.
+        High entropy = diffuse attention = under-generated regions = refine genuinely useful.
+        Only applied when action == ACTION_REFINE.
+        """
+        return self.config.c_refine * attention_entropy
 
     def compute_reward(
         self,
@@ -412,11 +459,14 @@ class RewardComputer:
         prompt: str,
         action: int,
         is_terminal: bool,
+        nfe_used: int = 50,
+        n_max: int = 50,
+        attention_entropy: float = 0.0,
         prev_clip: Optional[float] = None,
         prev_ir: Optional[float] = None,
         prev_aesthetic: Optional[float] = None,
     ) -> tuple[float, dict]:
-        """Compute total reward R = R_quality + R_efficiency + R_terminal.
+        """Compute total reward R = R_quality + R_efficiency + R_terminal + R_refine_bonus.
 
         D-13: No outer lambda weights. Sum directly.
         """
@@ -428,9 +478,15 @@ class RewardComputer:
         r_terminal = 0.0
         t_metrics = {}
         if is_terminal:
-            r_terminal, t_metrics = self.compute_terminal_reward(curr_image, prompt)
+            r_terminal, t_metrics = self.compute_terminal_reward(
+                curr_image, prompt, nfe_used=nfe_used, n_max=n_max,
+            )
 
-        total = r_quality + r_efficiency + r_terminal
+        r_refine_bonus = 0.0
+        if action == ACTION_REFINE:
+            r_refine_bonus = self.compute_refine_bonus(attention_entropy)
+
+        total = r_quality + r_efficiency + r_terminal + r_refine_bonus
 
         metrics = {
             **q_metrics,
@@ -438,6 +494,7 @@ class RewardComputer:
             "r_quality": r_quality,
             "r_efficiency": r_efficiency,
             "r_terminal": r_terminal,
+            "r_refine_bonus": r_refine_bonus,
             "r_total": total,
         }
         return total, metrics
