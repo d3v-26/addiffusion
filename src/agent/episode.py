@@ -30,6 +30,7 @@ from src.agent.state import StateExtractor
 from src.diffusion.attention import AttentionExtractor
 from src.diffusion.pipeline import AdaptiveDiffusionPipeline, PipelineState, StepOutput
 from src.diffusion.refine import apply_refine_action
+from src.rewards.reward import compute_attention_entropy
 
 
 @dataclass
@@ -131,6 +132,7 @@ class EpisodeRunner:
 
         prev_z0_pred = None
         prev_decoded = None
+        running_nfe = 0  # tracks cumulative NFE for terminal reward computation
 
         while not pipe_state.is_done:
             step_idx = pipe_state.step_index
@@ -145,6 +147,13 @@ class EpisodeRunner:
             # Run denoising step to get current prediction + attention maps
             self.attention_extractor.clear()
             step_out = self.pipeline.denoise_step(pipe_state, guidance_scale=self.guidance_scale)
+
+            # Compute attention entropy from this step's cross-attention maps (before action modifies them)
+            try:
+                _attn_maps = self.attention_extractor.get_attention_maps()  # (h, w, L)
+                _attn_entropy = compute_attention_entropy(_attn_maps)
+            except RuntimeError:
+                _attn_entropy = 0.0
 
             # Decode one-step prediction for state features
             decoded_image = self.pipeline.decode(step_out.z0_pred)
@@ -199,6 +208,8 @@ class EpisodeRunner:
                 z0_for_reward = z0_refined
                 result.action_sequence.append("refine")
 
+            running_nfe += nfe
+
             # Compute reward if reward function provided
             reward = 0.0
             if reward_fn is not None:
@@ -211,6 +222,8 @@ class EpisodeRunner:
                     is_terminal=pipe_state.is_done,
                     prompt=prompt,
                     decoded_image=decoded_image,
+                    nfe_used=running_nfe,
+                    attention_entropy=_attn_entropy,
                 )
 
             # Record transition
