@@ -152,6 +152,46 @@ def test_full_reward(model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-
     print("[PASS] Composite reward: R = R_quality + R_efficiency + R_terminal (D-13: no lambdas)")
 
 
+def test_new_reward_config_fields():
+    """RewardConfig accepts c_save, c_refine, baseline_scores_path."""
+    cfg = RewardConfig(c_save=1.0, c_refine=0.2, baseline_scores_path=None)
+    assert cfg.c_save == 1.0
+    assert cfg.c_refine == 0.2
+    assert cfg.baseline_scores_path is None
+    print("[PASS] RewardConfig accepts new fields")
+
+
+def test_compute_attention_entropy_uniform():
+    """Uniform attention map → entropy = 1.0 (maximum)."""
+    from src.rewards.reward import compute_attention_entropy
+    h, w, L = 8, 8, 10
+    attn = torch.ones(h, w, L)  # uniform across spatial and token dims
+    H = compute_attention_entropy(attn)
+    assert abs(H - 1.0) < 1e-4, f"Expected 1.0, got {H}"
+    print(f"[PASS] Uniform attention entropy = {H:.4f} ≈ 1.0")
+
+
+def test_compute_attention_entropy_concentrated():
+    """Concentrated attention map → entropy near 0."""
+    from src.rewards.reward import compute_attention_entropy
+    h, w, L = 8, 8, 10
+    attn = torch.zeros(h, w, L)
+    attn[0, 0, 0] = 1.0  # all mass on one cell
+    H = compute_attention_entropy(attn)
+    assert H < 0.1, f"Expected near 0, got {H}"
+    print(f"[PASS] Concentrated attention entropy = {H:.4f} ≈ 0")
+
+
+def test_compute_attention_entropy_range():
+    """Attention entropy is always in [0, 1]."""
+    from src.rewards.reward import compute_attention_entropy
+    for _ in range(10):
+        attn = torch.rand(16, 16, 20)
+        H = compute_attention_entropy(attn)
+        assert 0.0 <= H <= 1.0, f"Entropy out of range: {H}"
+    print("[PASS] Attention entropy always in [0, 1]")
+
+
 if __name__ == "__main__":
     model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
     if len(sys.argv) > 1:

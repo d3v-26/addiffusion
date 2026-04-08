@@ -14,6 +14,7 @@ References:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -46,11 +47,45 @@ class RewardConfig:
     beta_2: float = 1.0  # Aesthetic
     beta_3: float = 1.5  # ImageReward
 
+    # Step-savings bonus (new)
+    c_save: float = 1.0  # weight for (N_max - NFE_used) / N_max term
+
+    # Refine bonus (new)
+    c_refine: float = 0.2  # weight for attention entropy bonus on refine action
+
+    # Baseline scores file (new) — None disables normalization (fallback to absolute)
+    baseline_scores_path: Optional[str] = None
+
     # Refinement
     refine_k: int = 2
 
     # Normalization toggle (A5 ablation)
     normalize: bool = True
+
+
+def compute_attention_entropy(attention_maps: torch.Tensor) -> float:
+    """Compute normalized Shannon entropy of aggregated cross-attention map.
+
+    Measures how diffuse (uncertain) the attention is across spatial positions.
+    High entropy = attention spread across many pixels = under-generated regions.
+    Low entropy = attention concentrated = image structure is clear.
+
+    Args:
+        attention_maps: (h, w, L) cross-attention maps from UNetAttentionExtractor,
+                        where L is the number of text tokens.
+
+    Returns:
+        Normalized entropy in [0, 1]. 1 = maximally uniform (diffuse), 0 = concentrated.
+    """
+    h, w, _L = attention_maps.shape
+    # Sum over text tokens → spatial attention distribution (h, w)
+    A = attention_maps.sum(dim=-1).float()
+    A = A / (A.sum() + 1e-8)  # normalize to probability distribution over pixels
+    # Shannon entropy H = -sum(p * log(p))
+    H = -(A * (A + 1e-8).log()).sum()
+    # Normalize by maximum possible entropy (uniform distribution over h*w pixels)
+    H_max = math.log(h * w)
+    return float((H / H_max).clamp(0.0, 1.0))
 
 
 class _AestheticMLP(torch.nn.Module):
