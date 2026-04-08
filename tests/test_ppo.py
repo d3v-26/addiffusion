@@ -193,12 +193,39 @@ def test_ppo_learning():
     print("[PASS] PPO shifts policy toward high-advantage actions")
 
 
+def test_ppo_override_entropy_coeff():
+    """PPOTrainer.update() respects override_entropy_coeff over config value."""
+    import torch
+    from src.agent.networks import PolicyNetwork, ValueNetwork
+    from src.agent.ppo import PPOConfig, PPOTrainer, TrajectoryBatch
+
+    policy = PolicyNetwork(input_dim=16, hidden_dim=32, num_actions=3)
+    value_net = ValueNetwork(input_dim=16, hidden_dim=32)
+    cfg = PPOConfig(entropy_coeff=0.01, ppo_epochs=1, mini_batch_size=4)
+    trainer = PPOTrainer(policy, value_net, config=cfg, device="cpu")
+
+    batch = TrajectoryBatch(
+        states=torch.randn(8, 16),
+        actions=torch.randint(0, 3, (8,)),
+        old_log_probs=torch.randn(8),
+        returns=torch.randn(8),
+        advantages=torch.randn(8),
+        values=torch.randn(8),
+    )
+
+    # Should not raise — override_entropy_coeff is accepted
+    metrics = trainer.update(batch, override_entropy_coeff=0.05)
+    assert "entropy" in metrics
+    print(f"[PASS] override_entropy_coeff=0.05 accepted, entropy={metrics['entropy']:.4f}")
+
+
 if __name__ == "__main__":
     test_gae()
     test_gae_discount()
     test_episodes_to_batch()
     test_ppo_update()
     test_ppo_learning()
+    test_ppo_override_entropy_coeff()
 
     print("\n" + "=" * 60)
     print("ALL PPO TESTS PASSED")

@@ -174,12 +174,20 @@ class PPOTrainer:
             lr=config.lr,
         )
 
-    def update(self, batch: TrajectoryBatch) -> dict:
+    def update(self, batch: TrajectoryBatch, override_entropy_coeff: Optional[float] = None) -> dict:
         """Run K epochs of PPO updates on a trajectory batch.
+
+        Args:
+            batch: Trajectory data collected from the environment.
+            override_entropy_coeff: If provided, use this entropy coefficient
+                instead of ``PPOConfig.entropy_coeff``. Useful for annealing
+                schedules (e.g. high entropy early in training to prevent
+                always-continue collapse, then low entropy later).
 
         Returns:
             Dictionary of training metrics.
         """
+        entropy_coeff = override_entropy_coeff if override_entropy_coeff is not None else self.config.entropy_coeff
         cfg = self.config
 
         # Move to device
@@ -236,7 +244,7 @@ class PPOTrainer:
                 value_loss = (new_values - mb_returns).pow(2).mean()
 
                 # Total loss: L = L_policy + c1 * L_value - c2 * H[pi]
-                loss = policy_loss + cfg.value_coeff * value_loss - cfg.entropy_coeff * entropy.mean()
+                loss = policy_loss + cfg.value_coeff * value_loss - entropy_coeff * entropy.mean()
 
                 # Skip non-finite loss (NaN/inf from corrupted state features)
                 if not torch.isfinite(loss):
