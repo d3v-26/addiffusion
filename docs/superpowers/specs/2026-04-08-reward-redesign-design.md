@@ -28,18 +28,21 @@ Selected over two alternatives:
 ### 1. Terminal Reward (replaces existing)
 
 ```python
+eps = 1e-6
+norm_k = max(score_ddim50_k[prompt] - score_ddim20_k[prompt], eps)
+
 R_terminal = sum(
-    beta_k * (score_agent_k - score_ddim20_k[prompt])
+    beta_k * (score_agent_k - score_ddim20_k[prompt]) / norm_k
     for k in [CLIP, Aesthetic, ImageReward]
 ) + c_save * (N_max - NFE_used) / N_max
 ```
 
-- `score_ddim20_k[prompt]`: precomputed DDIM-20 baseline scores, loaded from `data/ddim20_baseline_scores.json`
-- When agent matches DDIM-20 quality → quality term = 0, only step savings matter
-- When agent beats DDIM-20 → positive bonus regardless of NFE used
-- When agent stops early and matches DDIM-20 → earns full `c_save` bonus
-- Fallback for unseen prompts: `score_ddim20_k = 0` (terminal reward becomes purely absolute)
-- `c_save = 2.0` (initial; comparable to ~40 steps of typical per-step quality reward)
+- `score_ddim20_k[prompt]`, `score_ddim50_k[prompt]`: both precomputed in a single job, stored in `data/baseline_scores.json`
+- The normalized quality term is `0` when agent matches DDIM-20, `1` when it matches DDIM-50, `>1` if it exceeds DDIM-50
+- Per-prompt normalization: hard prompts (large DDIM-20→50 gap) and easy prompts (small gap) are on the same scale, stabilizing training across the COCO prompt distribution
+- `c_save = 1.0` (initial; now meaningful: saving all 50 steps ≈ worth going from DDIM-20 to DDIM-50 quality)
+- Fallback for unseen prompts: `score_ddim20_k = 0`, `norm_k = 1.0` (terminal reward becomes unnormalized absolute)
+- Both baselines computed in the same precomputation job — no extra wall time vs DDIM-20 alone
 
 ### 2. Refine Bonus (new, per-step, action-conditional)
 
@@ -87,16 +90,24 @@ Implemented by adding an optional `entropy_coeff` override parameter to `PPOTrai
 
 ## Precomputation
 
-**New script:** `scripts/precompute_ddim20_scores.py`
+**New script:** `scripts/precompute_baseline_scores.py`
 
-- Runs DDIM-20 on every prompt in `data/coco/annotations/captions_val2014.json`
+- Runs DDIM-20 then DDIM-50 on every prompt in `data/coco/annotations/captions_val2014.json`
 - Computes CLIP, Aesthetic, ImageReward for each output
-- Writes `data/ddim20_baseline_scores.json`: `{prompt_str: {clip, aesthetic, image_reward}}`
+- Writes `data/baseline_scores.json`:
+  ```json
+  {
+    "A dog running on a beach": {
+      "ddim20": {"clip": 0.312, "aesthetic": 5.21, "image_reward": 0.44},
+      "ddim50": {"clip": 0.334, "aesthetic": 5.43, "image_reward": 0.51}
+    }
+  }
+  ```
 - Must be run before retraining
 
-**New SLURM job:** `scripts/precompute_ddim20_scores.slurm`
+**New SLURM job:** `scripts/precompute_baseline_scores.slurm`
 
-- Partition: `hpg-b200`, 1 GPU, ~2–3h wall time for full COCO val2014
+- Partition: `hpg-b200`, 1 GPU, ~4–5h wall time for full COCO val2014 (both baselines in one job)
 
 ---
 
@@ -110,8 +121,8 @@ ppo:
   # entropy_coeff removed (now a schedule)
 
 reward:
-  ddim20_scores_path: "data/ddim20_baseline_scores.json"
-  c_save: 2.0
+  baseline_scores_path: "data/baseline_scores.json"
+  c_save: 1.0
   c_refine: 0.2
   # all existing alpha/beta/c_nfe values unchanged
 ```
@@ -122,11 +133,11 @@ reward:
 
 | File | Change |
 |------|--------|
-| `src/rewards/reward.py` | New terminal reward formula, refine bonus, load scores JSON |
+| `src/rewards/reward.py` | New terminal reward formula (normalized, dual baseline), refine bonus, load scores JSON |
 | `src/train.py` | Entropy schedule: pass annealed value to PPO update per iteration |
-| `configs/default.yaml` | New `c_save`, `c_refine`, `ddim20_scores_path`, entropy schedule params |
-| `scripts/precompute_ddim20_scores.py` | New: run DDIM-20, compute scores, write JSON |
-| `scripts/precompute_ddim20_scores.slurm` | New: SLURM wrapper for precomputation |
+| `configs/default.yaml` | New `c_save`, `c_refine`, `baseline_scores_path`, entropy schedule params |
+| `scripts/precompute_baseline_scores.py` | New: run DDIM-20 + DDIM-50, compute scores, write JSON |
+| `scripts/precompute_baseline_scores.slurm` | New: SLURM wrapper for precomputation |
 
 ## Files Unchanged
 
@@ -165,7 +176,7 @@ Order of operations:
 
 | Param | Initial Value | Risk if Too Low | Risk if Too High |
 |-------|--------------|-----------------|------------------|
-| `c_save` | 2.0 | Agent still prefers continue to step 50 | Agent stops at step 3 (before quality is adequate) |
+| `c_save` | 1.0 | Agent still prefers continue to step 50 | Agent stops at step 3 (before quality is adequate) |
 | `c_refine` | 0.2 | Refine never selected | Refine selected even on clean images |
 | `entropy_coeff_start` | 0.05 | Entropy collapse early in training | Slow convergence |
 
