@@ -156,6 +156,7 @@ def train(cfg: dict):
         normalize=cfg["reward"]["normalize"],
         refine_k=cfg["refinement"]["k"],
         c_save=cfg["reward"].get("c_save", 1.0),
+        terminal_multiplicative=cfg["reward"].get("terminal_multiplicative", True),
         c_refine=cfg["reward"].get("c_refine", 0.2),
         baseline_scores_path=cfg["reward"].get("baseline_scores_path", None),
     )
