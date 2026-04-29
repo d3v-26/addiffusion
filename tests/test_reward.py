@@ -197,6 +197,7 @@ def test_terminal_reward_with_baselines():
     cfg = RewardConfig(
         beta_1=3.105, beta_2=1.349, beta_3=0.643,
         c_save=1.0,
+        terminal_multiplicative=False,
         baseline_scores_path=None,
     )
     rc = RewardComputer(config=cfg, device="cpu")
@@ -236,7 +237,8 @@ def test_terminal_reward_with_baselines():
 
 def test_terminal_reward_fallback_no_baseline():
     """When prompt not in baseline_scores, uses score_ddim20=0, norm=1 (absolute scores)."""
-    cfg = RewardConfig(beta_1=1.0, beta_2=0.0, beta_3=0.0, c_save=0.0, baseline_scores_path=None)
+    cfg = RewardConfig(beta_1=1.0, beta_2=0.0, beta_3=0.0, c_save=0.0,
+                       terminal_multiplicative=False, baseline_scores_path=None)
     rc = RewardComputer(config=cfg, device="cpu")
     rc.baseline_scores = {}  # empty — prompt will be missing
 
@@ -268,6 +270,116 @@ def test_refine_bonus():
     print(f"[PASS] Refine bonus: high={bonus_high:.2f}, mid={bonus_mid:.2f}, low={bonus_low:.2f}")
 
 
+def test_terminal_reward_multiplicative():
+    """Multiplicative mode: reward = quality_term * (1 + c_save * savings_ratio).
+
+    Same quality at fewer steps must yield strictly more reward than full steps.
+    """
+    print("\n" + "=" * 60)
+    print("TEST: Multiplicative terminal reward")
+    print("=" * 60)
+
+    cfg = RewardConfig(
+        beta_1=1.0, beta_2=0.4, beta_3=0.6,
+        c_save=1.5,
+        terminal_multiplicative=True,
+        baseline_scores_path=None,
+    )
+    rc = RewardComputer(config=cfg, device="cpu")
+    rc.baseline_scores = {
+        "a cat": {
+            "ddim20": {"clip": 0.30, "aesthetic": 5.0, "image_reward": 0.40},
+            "ddim50": {"clip": 0.35, "aesthetic": 5.5, "image_reward": 0.60},
+        }
+    }
+
+    fake_image = torch.rand(1, 3, 64, 64)
+    # DDIM-50 quality scores
+    rc.clip_score = lambda img, prompt: 0.35
+    rc.image_reward_score = lambda img, prompt: 0.60
+    rc.aesthetic_score = lambda img: 5.5
+
+    # Full run (50 steps): savings_ratio = 0
+    reward_full, m_full = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=50, n_max=50)
+    # quality_term = 1.0 + 0.4 + 0.6 = 2.0; efficiency_mult = 1 + 1.5*0 = 1.0; reward = 2.0
+    assert abs(m_full["terminal_quality_term"] - 2.0) < 1e-3, \
+        f"Quality term at DDIM-50: expected 2.0, got {m_full['terminal_quality_term']:.3f}"
+    assert abs(reward_full - 2.0) < 1e-3, \
+        f"Full-run reward: expected 2.0, got {reward_full:.3f}"
+
+    # Early stop (20 steps, same quality): savings_ratio = 0.6
+    reward_early, m_early = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=20, n_max=50)
+    # efficiency_mult = 1 + 1.5*0.6 = 1.9; reward = 2.0 * 1.9 = 3.8
+    assert abs(reward_early - 3.8) < 1e-3, \
+        f"Early-stop reward: expected 3.8, got {reward_early:.3f}"
+
+    # KEY INVARIANT: same quality at fewer steps → more reward
+    assert reward_early > reward_full, \
+        f"Early stop should beat full run at same quality: {reward_early:.3f} vs {reward_full:.3f}"
+
+    print(f"  Full run (50 steps): {reward_full:.3f}")
+    print(f"  Early stop (20 steps, same quality): {reward_early:.3f}")
+    print(f"  Efficiency multiplier at step 20: {m_early.get('terminal_efficiency_mult', 'N/A')}")
+    print("[PASS] Multiplicative: same quality at fewer steps yields more reward")
+
+
+def test_terminal_reward_multiplicative_quality_tradeoff():
+    """Lower quality × high savings can beat full quality × no savings.
+
+    Verifies the agent will stop at DDIM-20 quality if it saves enough steps.
+    """
+    print("\n" + "=" * 60)
+    print("TEST: Multiplicative tradeoff (quality vs savings)")
+    print("=" * 60)
+
+    cfg = RewardConfig(
+        beta_1=1.0, beta_2=0.4, beta_3=0.6,
+        c_save=1.5,
+        terminal_multiplicative=True,
+        baseline_scores_path=None,
+    )
+    rc = RewardComputer(config=cfg, device="cpu")
+    rc.baseline_scores = {
+        "a cat": {
+            "ddim20": {"clip": 0.30, "aesthetic": 5.0, "image_reward": 0.40},
+            "ddim50": {"clip": 0.35, "aesthetic": 5.5, "image_reward": 0.60},
+        }
+    }
+    fake_image = torch.rand(1, 3, 64, 64)
+
+    # Agent stops at step 18 with DDIM-20 quality (norm=0 for all metrics)
+    rc.clip_score = lambda img, prompt: 0.30       # matches DDIM-20
+    rc.image_reward_score = lambda img, prompt: 0.40
+    rc.aesthetic_score = lambda img: 5.0
+    reward_ddim20_early, _ = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=18, n_max=50)
+    # quality_term = 0.0; reward = 0.0 * anything = 0.0
+
+    # Agent runs all 50 steps with DDIM-50 quality (norm=1 for all)
+    rc.clip_score = lambda img, prompt: 0.35
+    rc.image_reward_score = lambda img, prompt: 0.60
+    rc.aesthetic_score = lambda img: 5.5
+    reward_ddim50_full, _ = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=50, n_max=50)
+    # quality_term = 2.0; efficiency_mult = 1.0; reward = 2.0
+
+    # Agent stops at step 18 with 50% quality (norm=0.5 each metric)
+    rc.clip_score = lambda img, prompt: 0.325     # midpoint
+    rc.image_reward_score = lambda img, prompt: 0.50
+    rc.aesthetic_score = lambda img: 5.25
+    reward_half_early, _ = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=18, n_max=50)
+    # quality_term = 0.5+0.2+0.3 = 1.0; savings_ratio=(50-18)/50=0.64; mult=1+1.5*0.64=1.96
+    # reward = 1.0 * 1.96 = 1.96
+
+    assert reward_half_early > reward_ddim20_early, \
+        "50% quality early > 0% quality early"
+    assert reward_half_early < reward_ddim50_full, \
+        "50% quality early < 100% quality full run (quality still matters)"
+
+    print(f"  DDIM-20 quality at step 18: {reward_ddim20_early:.3f}")
+    print(f"  50% quality at step 18: {reward_half_early:.3f}")
+    print(f"  DDIM-50 quality at step 50: {reward_ddim50_full:.3f}")
+    print("[PASS] Quality still required — stopping early with garbage image gets penalized")
+
+
 if __name__ == "__main__":
     model_id = "stable-diffusion-v1-5/stable-diffusion-v1-5"
     if len(sys.argv) > 1:
@@ -278,6 +390,15 @@ if __name__ == "__main__":
     test_clip_score(model_id)
     test_dino_similarity()
     test_full_reward(model_id)
+    test_new_reward_config_fields()
+    test_compute_attention_entropy_uniform()
+    test_compute_attention_entropy_concentrated()
+    test_compute_attention_entropy_range()
+    test_terminal_reward_with_baselines()
+    test_terminal_reward_fallback_no_baseline()
+    test_refine_bonus()
+    test_terminal_reward_multiplicative()
+    test_terminal_reward_multiplicative_quality_tradeoff()
 
     print("\n" + "=" * 60)
     print("ALL REWARD TESTS PASSED")

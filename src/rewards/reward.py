@@ -53,6 +53,11 @@ class RewardConfig:
     # Refine bonus (new)
     c_refine: float = 0.2  # weight for attention entropy bonus on refine action
 
+    # Terminal reward mode
+    # True (default): R_terminal = quality_term * (1 + c_save * savings_ratio)
+    # False (ablation A5): R_terminal = quality_term + c_save * savings_ratio  (original additive)
+    terminal_multiplicative: bool = True
+
     # Baseline scores file (new) — None disables normalization (fallback to absolute)
     baseline_scores_path: Optional[str] = None
 
@@ -430,8 +435,15 @@ class RewardComputer:
             + cfg.beta_2 * norm(aesthetic, ddim20["aesthetic"], ddim50["aesthetic"])
             + cfg.beta_3 * norm(ir, ddim20["image_reward"], ddim50["image_reward"])
         )
-        step_savings = cfg.c_save * (n_max - nfe_used) / max(n_max, 1)
-        reward = quality_term + step_savings
+        savings_ratio = (n_max - nfe_used) / max(n_max, 1)
+        efficiency_mult = (1.0 + cfg.c_save * savings_ratio) if cfg.terminal_multiplicative else 1.0
+
+        if cfg.terminal_multiplicative:
+            step_savings = quality_term * (efficiency_mult - 1.0)
+            reward = quality_term * efficiency_mult
+        else:
+            step_savings = cfg.c_save * savings_ratio
+            reward = quality_term + step_savings
 
         metrics = {
             "terminal_clip": clip,
@@ -439,6 +451,7 @@ class RewardComputer:
             "terminal_ir": ir,
             "terminal_quality_term": quality_term,
             "terminal_step_savings": step_savings,
+            "terminal_efficiency_mult": efficiency_mult,
             "r_terminal": reward,
         }
         return reward, metrics
