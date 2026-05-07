@@ -29,7 +29,7 @@ from src.agent.networks import (
 from src.agent.state import StateExtractor
 from src.diffusion.attention import AttentionExtractor
 from src.diffusion.pipeline import AdaptiveDiffusionPipeline, PipelineState, StepOutput
-from src.diffusion.refine import apply_refine_action
+from src.diffusion.refine import apply_refine_action, filter_prompt_attention_maps
 from src.rewards.reward import compute_attention_entropy
 
 
@@ -47,6 +47,8 @@ class Transition:
     nfe: int = 0  # NFE consumed by this action
     timestep: int = 0  # Diffusion timestep
     z0_pred: Optional[torch.Tensor] = None  # One-step prediction (for reward computation)
+    is_warmup: bool = False  # Forced warmup action, excluded from PPO policy updates
+    reward_metrics: dict = field(default_factory=dict)  # Reward component diagnostics
 
 
 @dataclass
@@ -115,7 +117,7 @@ class EpisodeRunner:
             num_steps: Maximum denoising steps (N_max).
             seed: Random seed for reproducibility.
             deterministic: If True, use argmax actions (for evaluation).
-            reward_fn: Optional callable(prev_z0, curr_z0, action, step_info) → float.
+            reward_fn: Optional callable returning either reward or (reward, metrics).
                        If None, rewards are set to 0 (filled in later).
 
         Returns:
@@ -129,10 +131,14 @@ class EpisodeRunner:
             prompt, num_steps=num_steps, seed=seed, guidance_scale=self.guidance_scale,
         )
         n_max = len(pipe_state.timesteps)
+        refine_generator = None
+        if seed is not None:
+            refine_generator = torch.Generator(device=self.pipeline.device)
+            refine_generator.manual_seed(seed + 1_000_003)
 
         prev_z0_pred = None
-        prev_decoded = None
         running_nfe = 0  # tracks cumulative NFE for terminal reward computation
+        quality_state = {}
 
         while not pipe_state.is_done:
             step_idx = pipe_state.step_index
@@ -151,6 +157,9 @@ class EpisodeRunner:
             # Compute attention entropy from this step's cross-attention maps (before action modifies them)
             try:
                 _attn_maps = self.attention_extractor.get_attention_maps()  # (h, w, L)
+                _attn_maps = filter_prompt_attention_maps(
+                    _attn_maps, pipe_state.text_input_ids, self.pipeline.tokenizer,
+                )
                 _attn_entropy = compute_attention_entropy(_attn_maps)
             except RuntimeError:
                 _attn_entropy = 0.0
@@ -163,6 +172,10 @@ class EpisodeRunner:
                 decoded_image=decoded_image,
                 prompt=prompt,
                 timestep=step_out.timestep,
+                clip_score=quality_state.get("clip_score", 0.0),
+                aesthetic_delta=quality_state.get("delta_aesthetic", 0.0),
+                image_reward_delta=quality_state.get("delta_ir", 0.0),
+                dino_similarity=quality_state.get("dino_similarity", 0.0),
                 step_ratio=step_idx / n_max,
                 nfe_ratio=pipe_state.total_nfe / n_max,
             )
@@ -183,10 +196,11 @@ class EpisodeRunner:
             # Execute action
             nfe = 0
             z0_for_reward = step_out.z0_pred
+            decoded_for_reward = decoded_image
 
             if action == ACTION_CONTINUE:
                 self.pipeline.advance_state(pipe_state, step_out)
-                nfe = 1
+                nfe = step_out.nfe
                 result.action_sequence.append("continue")
 
             elif action == ACTION_STOP:
@@ -194,7 +208,8 @@ class EpisodeRunner:
                 result.final_z0 = step_out.z0_pred
                 result.final_image = decoded_image
                 pipe_state.is_done = True
-                nfe = 0
+                pipe_state.total_nfe += step_out.nfe
+                nfe = step_out.nfe
                 result.action_sequence.append("stop")
 
             elif action == ACTION_REFINE:
@@ -203,17 +218,24 @@ class EpisodeRunner:
                     k=self.refine_k, r_noise=self.refine_r_noise,
                     mask_threshold=self.mask_threshold, blur_sigma=self.blur_sigma,
                     guidance_scale=self.guidance_scale,
+                    generator=refine_generator,
+                    observed_step_out=step_out,
                 )
                 nfe = refine_nfe
                 z0_for_reward = z0_refined
+                decoded_for_reward = self.pipeline.decode(z0_refined)
+                if pipe_state.is_done:
+                    result.final_z0 = z0_refined
+                    result.final_image = decoded_for_reward
                 result.action_sequence.append("refine")
 
             running_nfe += nfe
 
             # Compute reward if reward function provided
             reward = 0.0
+            reward_metrics = {}
             if reward_fn is not None:
-                reward = reward_fn(
+                reward_result = reward_fn(
                     prev_z0=prev_z0_pred,
                     curr_z0=z0_for_reward,
                     action=action,
@@ -221,10 +243,21 @@ class EpisodeRunner:
                     n_max=n_max,
                     is_terminal=pipe_state.is_done,
                     prompt=prompt,
-                    decoded_image=decoded_image,
+                    decoded_image=decoded_for_reward,
                     nfe_used=running_nfe,
                     attention_entropy=_attn_entropy,
                 )
+                if isinstance(reward_result, tuple):
+                    reward, reward_metrics = reward_result
+                else:
+                    reward = reward_result
+                    reward_metrics = {}
+                quality_state = {
+                    "clip_score": reward_metrics.get("clip_score", quality_state.get("clip_score", 0.0)),
+                    "delta_aesthetic": reward_metrics.get("delta_aesthetic", 0.0),
+                    "delta_ir": reward_metrics.get("delta_ir", 0.0),
+                    "dino_similarity": reward_metrics.get("dino_similarity", 0.0),
+                }
 
             # Record transition
             transition = Transition(
@@ -237,11 +270,12 @@ class EpisodeRunner:
                 nfe=nfe,
                 timestep=step_out.timestep,
                 z0_pred=z0_for_reward.cpu() if z0_for_reward is not None else None,
+                is_warmup=is_warmup,
+                reward_metrics=reward_metrics,
             )
             result.transitions.append(transition)
 
             prev_z0_pred = z0_for_reward
-            prev_decoded = decoded_image
 
         # If we didn't stop early, decode the final prediction
         if result.final_image is None and pipe_state.history:

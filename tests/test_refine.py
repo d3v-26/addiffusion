@@ -14,7 +14,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.diffusion.pipeline import AdaptiveDiffusionPipeline
 from src.diffusion.attention import UNetAttentionExtractor
-from src.diffusion.refine import generate_refinement_mask, region_refine, apply_refine_action
+from src.diffusion.refine import (
+    apply_refine_action,
+    filter_prompt_attention_maps,
+    generate_refinement_mask,
+    region_refine,
+)
 
 
 def test_mask_generation():
@@ -70,6 +75,26 @@ def test_mask_threshold():
 
     assert coverage_low < coverage_mid < coverage_high, "Higher threshold should produce more coverage"
     print("[PASS] Threshold correctly controls mask coverage")
+
+
+def test_prompt_attention_filter():
+    """Special/padding token channels should be removed before mask generation."""
+    print("\n" + "=" * 60)
+    print("TEST: Prompt attention token filtering")
+    print("=" * 60)
+
+    class FakeTokenizer:
+        all_special_ids = [0, 2]
+        pad_token_id = 0
+
+    attn_maps = torch.rand(8, 8, 6)
+    token_ids = torch.tensor([[0, 10, 11, 2, 0, 0]])
+    filtered = filter_prompt_attention_maps(attn_maps, token_ids, FakeTokenizer())
+
+    assert filtered.shape == (8, 8, 2), f"Expected 2 semantic tokens, got {filtered.shape}"
+    assert torch.equal(filtered[..., 0], attn_maps[..., 1])
+    assert torch.equal(filtered[..., 1], attn_maps[..., 2])
+    print("[PASS] Special/padding token channels filtered")
 
 
 def test_region_refine(model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-5"):
@@ -142,6 +167,7 @@ def test_apply_refine_action(model_id: str = "stable-diffusion-v1-5/stable-diffu
     z0_refined, nfe = apply_refine_action(
         pipe, state, extractor,
         k=2, r_noise=0.5, mask_threshold=0.5, blur_sigma=3.0, guidance_scale=7.5,
+        observed_step_out=step_out,
     )
 
     # State should have advanced
@@ -175,6 +201,7 @@ if __name__ == "__main__":
 
     test_mask_generation()
     test_mask_threshold()
+    test_prompt_attention_filter()
     test_region_refine(model_id)
     test_apply_refine_action(model_id)
 

@@ -80,24 +80,10 @@ def test_toy_training(model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1
         for b in range(batch_size):
             prompt = prompts[b % len(prompts)]
 
-            prev_metrics = {}
-
-            def reward_fn(prev_z0, curr_z0, action, step_index, n_max, is_terminal, prompt, decoded_image, _prev=prev_metrics):
-                prev_img = _prev.get("prev_decoded")
-                reward, metrics = reward_computer.compute_reward(
-                    prev_image=prev_img, curr_image=decoded_image,
-                    prompt=prompt, action=action, is_terminal=is_terminal,
-                    prev_clip=_prev.get("clip_score"), prev_ir=_prev.get("image_reward"),
-                )
-                _prev["prev_decoded"] = decoded_image
-                _prev["clip_score"] = metrics.get("clip_score")
-                _prev["image_reward"] = metrics.get("image_reward")
-                return reward
-
             ep = runner.run_episode(
                 prompt=prompt, policy=policy, value_net=value_net,
                 num_steps=num_steps, seed=42 + iteration * batch_size + b,
-                reward_fn=reward_fn,
+                reward_fn=reward_computer.make_episode_reward_fn(),
             )
             episodes.append(ep)
 
