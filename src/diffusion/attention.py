@@ -217,7 +217,17 @@ class StoringAttnProcessor:
 
         # Store cross-attention maps (only for cross-attention, not self-attention)
         if is_cross:
-            self.extractor.store_map(self.name, attention_probs.detach())
+            stored_probs = attention_probs.detach()
+            if batch_size >= 2 and batch_size % 2 == 0:
+                heads = stored_probs.shape[0] // batch_size
+                stored_probs = stored_probs.view(
+                    batch_size, heads, stored_probs.shape[1], stored_probs.shape[2]
+                )
+                # CFG batches are [unconditional, conditional]; keep conditional maps only.
+                stored_probs = stored_probs[batch_size // 2:].reshape(
+                    -1, stored_probs.shape[2], stored_probs.shape[3]
+                )
+            self.extractor.store_map(self.name, stored_probs)
 
         hidden_states = torch.bmm(attention_probs, value)
         hidden_states = attn.batch_to_head_dim(hidden_states)

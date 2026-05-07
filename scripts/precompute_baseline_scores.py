@@ -9,7 +9,6 @@ Usage:
         --config /blue/ruogu.fang/pateld3/addiffusion/configs/default.yaml \\
         --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/annotations/captions_val2014.json \\
         --output /blue/ruogu.fang/pateld3/addiffusion/data/baseline_scores.json \\
-        --max_prompts 10000 \\
         --seed 42
 
 References:
@@ -82,7 +81,7 @@ def main():
     parser.add_argument("--config", required=True)
     parser.add_argument("--prompts_file", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--max_prompts", type=int, default=10000)
+    parser.add_argument("--max_prompts", type=int, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default=None)
     args = parser.parse_args()

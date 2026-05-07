@@ -9,7 +9,7 @@
 #SBATCH --error=/blue/ruogu.fang/pateld3/addiffusion/logs/pilot_reward_v2_%j.err
 
 # Load modules
-module load cuda/12.8.0
+module load cuda/12.8.1
 module load gcc/11.4.0
 
 # Activate environment

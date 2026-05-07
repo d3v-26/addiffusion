@@ -15,7 +15,7 @@
 
 set -e
 
-module load cuda/12.8.0
+module load cuda/12.8.1
 module load gcc/11.4.0
 
 cd "/blue/ruogu.fang/pateld3/addiffusion/"
@@ -39,7 +39,6 @@ uv run python -u /blue/ruogu.fang/pateld3/addiffusion/scripts/precompute_baselin
     --config /blue/ruogu.fang/pateld3/addiffusion/configs/default.yaml \
     --prompts_file /blue/ruogu.fang/pateld3/addiffusion/data/coco/annotations/captions_val2014.json \
     --output /blue/ruogu.fang/pateld3/addiffusion/data/baseline_scores.json \
-    --max_prompts 10000 \
     --seed 42
 
 echo "=== Done: $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="

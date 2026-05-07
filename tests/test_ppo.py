@@ -103,6 +103,35 @@ def test_episodes_to_batch():
     print(f"  Advantages: mean={batch.advantages.mean():.4f}, std={batch.advantages.std():.4f}")
 
 
+def test_episodes_to_batch_skips_warmup():
+    """Forced warmup transitions should not enter PPO policy updates."""
+    print("\n" + "=" * 60)
+    print("TEST: Episodes to batch skips warmup transitions")
+    print("=" * 60)
+
+    state_dim = StateExtractor.TOTAL_DIM
+    ep = EpisodeResult(prompt="test")
+    for i in range(5):
+        ep.transitions.append(
+            Transition(
+                state_features=torch.randn(1, state_dim),
+                action=ACTION_CONTINUE if i < 4 else ACTION_STOP,
+                log_prob=0.0 if i < 3 else -0.5,
+                value=0.0 if i < 3 else 0.1,
+                reward=0.1,
+                done=(i == 4),
+                nfe=1,
+                timestep=1000 - i * 100,
+                is_warmup=(i < 3),
+            )
+        )
+
+    batch = episodes_to_batch([ep], gamma=0.99, lam=0.95)
+    assert batch.states.shape[0] == 2, f"Expected 2 train transitions, got {batch.states.shape[0]}"
+    assert batch.actions.tolist() == [ACTION_CONTINUE, ACTION_STOP]
+    print("[PASS] Warmup transitions excluded from PPO batch")
+
+
 def test_ppo_update():
     """Test a single PPO update step."""
     print("\n" + "=" * 60)
@@ -223,6 +252,7 @@ if __name__ == "__main__":
     test_gae()
     test_gae_discount()
     test_episodes_to_batch()
+    test_episodes_to_batch_skips_warmup()
     test_ppo_update()
     test_ppo_learning()
     test_ppo_override_entropy_coeff()

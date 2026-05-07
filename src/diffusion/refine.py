@@ -19,7 +19,48 @@ import torch
 import torch.nn.functional as F
 
 from src.diffusion.attention import AttentionExtractor
-from src.diffusion.pipeline import AdaptiveDiffusionPipeline, PipelineState
+from src.diffusion.pipeline import AdaptiveDiffusionPipeline, PipelineState, StepOutput
+
+
+def filter_prompt_attention_maps(
+    attention_maps: torch.Tensor,
+    text_input_ids: Optional[torch.Tensor],
+    tokenizer,
+) -> torch.Tensor:
+    """Drop padding/special-token channels from cross-attention maps.
+
+    Args:
+        attention_maps: (h, w, L) cross-attention maps.
+        text_input_ids: Token IDs for the prompt, shape (1, L) or (L,).
+        tokenizer: Tokenizer with ``all_special_ids``/``pad_token_id`` metadata.
+
+    Returns:
+        Attention maps with only semantic prompt-token channels. Falls back to
+        the original maps if filtering would remove every token.
+    """
+    if text_input_ids is None or tokenizer is None:
+        return attention_maps
+
+    token_ids = text_input_ids.reshape(-1).to(device=attention_maps.device)
+    seq_len = attention_maps.shape[-1]
+    if token_ids.numel() < seq_len:
+        return attention_maps
+    token_ids = token_ids[:seq_len]
+
+    special_ids = set(getattr(tokenizer, "all_special_ids", []) or [])
+    pad_id = getattr(tokenizer, "pad_token_id", None)
+    if pad_id is not None:
+        special_ids.add(pad_id)
+    if not special_ids:
+        return attention_maps
+
+    keep = torch.ones(seq_len, dtype=torch.bool, device=attention_maps.device)
+    for special_id in special_ids:
+        keep &= token_ids != int(special_id)
+
+    if keep.any():
+        return attention_maps[..., keep]
+    return attention_maps
 
 
 def generate_refinement_mask(
@@ -87,6 +128,9 @@ def region_refine(
     r_noise: float = 0.5,
     guidance_scale: float = 7.5,
     generator: Optional[torch.Generator] = None,
+    initial_z0_pred: Optional[torch.Tensor] = None,
+    observed_nfe: int = 1,
+    observed_step_out: Optional[StepOutput] = None,
 ) -> tuple[torch.Tensor, int]:
     """Execute the RegionRefine algorithm.
 
@@ -107,6 +151,12 @@ def region_refine(
         r_noise: Noise reduction ratio. t' = t * r_noise.
         guidance_scale: CFG scale for denoising.
         generator: Random generator for reproducibility.
+        initial_z0_pred: Optional clean prediction already computed by the episode
+            observation denoise. When provided, RegionRefine reuses it instead
+            of running a duplicate initial UNet pass.
+        observed_nfe: NFE already spent to obtain ``initial_z0_pred``.
+        observed_step_out: Optional denoise-step output to reuse as the
+            observed clean prediction and NFE source.
 
     Returns:
         z0_refined: Refined clean prediction (1, 4, h, w).
@@ -115,12 +165,21 @@ def region_refine(
     current_t = state.timesteps[state.step_index]
     t_prime = int(current_t.item() * r_noise)  # Reduced noise level
 
-    # Step 1: One-step clean prediction
-    noise_pred = pipeline.unet_forward(
-        state.z_t, current_t, state.prompt_embeds, state.negative_prompt_embeds,
-        guidance_scale=guidance_scale,
-    )
-    z0_hat = pipeline.predict_clean(state.z_t, noise_pred, current_t)
+    if observed_step_out is not None and initial_z0_pred is None:
+        initial_z0_pred = observed_step_out.z0_pred
+        observed_nfe = observed_step_out.nfe
+
+    if initial_z0_pred is None:
+        # Step 1: One-step clean prediction
+        noise_pred = pipeline.unet_forward(
+            state.z_t, current_t, state.prompt_embeds, state.negative_prompt_embeds,
+            guidance_scale=guidance_scale,
+        )
+        z0_hat = pipeline.predict_clean(state.z_t, noise_pred, current_t)
+        nfe = 1
+    else:
+        z0_hat = initial_z0_pred
+        nfe = observed_nfe
 
     # Steps 2a-2b: k refinement iterations
     for j in range(k):
@@ -149,7 +208,7 @@ def region_refine(
         )
         z0_hat = pipeline.predict_clean(z_composite, noise_pred, t_prime)
 
-    nfe = 1 + k  # D-10: 1 initial + k refinement passes
+    nfe += k  # D-10: 1 observed prediction + k refinement passes
     return z0_hat, nfe
 
 
@@ -163,6 +222,9 @@ def apply_refine_action(
     blur_sigma: float = 3.0,
     guidance_scale: float = 7.5,
     generator: Optional[torch.Generator] = None,
+    initial_z0_pred: Optional[torch.Tensor] = None,
+    observed_nfe: int = 1,
+    observed_step_out: Optional[StepOutput] = None,
 ) -> tuple[torch.Tensor, int]:
     """Full refine action: generate mask + run RegionRefine + re-noise to next step.
 
@@ -178,13 +240,26 @@ def apply_refine_action(
         blur_sigma: Gaussian blur sigma for soft masks.
         guidance_scale: CFG scale.
         generator: For reproducibility.
+        initial_z0_pred: Optional clean prediction already computed by the
+            episode observation denoise.
+        observed_nfe: NFE already spent to compute ``initial_z0_pred``.
+        observed_step_out: Optional denoise-step output to reuse as the
+            observed clean prediction and NFE source.
 
     Returns:
         z0_refined: The refined clean prediction.
         nfe: Total NFE consumed (1 + k).
     """
+    step_index = state.step_index
+    current_t = state.timesteps[step_index].item()
+
+    if observed_step_out is not None and initial_z0_pred is None:
+        initial_z0_pred = observed_step_out.z0_pred
+        observed_nfe = observed_step_out.nfe
+
     # Get attention maps (should already be populated from the most recent denoise step)
     attn_maps = attention_extractor.get_attention_maps()
+    attn_maps = filter_prompt_attention_maps(attn_maps, state.text_input_ids, pipeline.tokenizer)
 
     # Generate soft mask
     mask = generate_refinement_mask(
@@ -195,6 +270,7 @@ def apply_refine_action(
     z0_refined, nfe = region_refine(
         pipeline, state, mask,
         k=k, r_noise=r_noise, guidance_scale=guidance_scale, generator=generator,
+        initial_z0_pred=initial_z0_pred, observed_nfe=observed_nfe,
     )
 
     # Post-refinement state transition (D-19):
@@ -208,6 +284,15 @@ def apply_refine_action(
 
     state.step_index += 1
     state.total_nfe += nfe
+    state.history.append(
+        StepOutput(
+            z_t=state.z_t,
+            z0_pred=z0_refined,
+            timestep=current_t,
+            step_index=step_index,
+            nfe=nfe,
+        )
+    )
 
     if state.step_index >= len(state.timesteps):
         state.is_done = True

@@ -41,7 +41,7 @@ R_terminal = sum(
 - The normalized quality term is `0` when agent matches DDIM-20, `1` when it matches DDIM-50, `>1` if it exceeds DDIM-50
 - Per-prompt normalization: hard prompts (large DDIM-20→50 gap) and easy prompts (small gap) are on the same scale, stabilizing training across the COCO prompt distribution
 - `c_save = 1.0` (initial; now meaningful: saving all 50 steps ≈ worth going from DDIM-20 to DDIM-50 quality)
-- Fallback for unseen prompts: `score_ddim20_k = 0`, `norm_k = 1.0` (terminal reward becomes unnormalized absolute)
+- Fallback for no-baseline ablations uses finite metric ranges; configured training now fails fast if prompts lack baseline coverage
 - Both baselines computed in the same precomputation job — no extra wall time vs DDIM-20 alone
 
 ### 2. Refine Bonus (new, per-step, action-conditional)

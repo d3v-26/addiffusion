@@ -58,7 +58,7 @@ class RewardConfig:
     # False (ablation A5): R_terminal = quality_term + c_save * savings_ratio  (original additive)
     terminal_multiplicative: bool = True
 
-    # Baseline scores file (new) — None disables normalization (fallback to absolute)
+    # Baseline scores file (new) — None uses finite fallback ranges for ablations
     baseline_scores_path: Optional[str] = None
 
     # Refinement
@@ -139,7 +139,60 @@ class RewardComputer:
                 print(f"[RewardComputer] Loaded baseline scores for {len(self.baseline_scores)} prompts")
             except FileNotFoundError:
                 print(f"[RewardComputer] WARNING: baseline_scores_path={config.baseline_scores_path} not found. "
-                      f"Terminal reward will use fallback (unnormalized absolute scores).")
+                      f"Terminal reward will use finite fallback ranges unless coverage is validated.")
+
+    def validate_baseline_coverage(self, prompts: list[str]) -> None:
+        """Fail fast if configured terminal baselines do not cover the prompts."""
+        if self.config.baseline_scores_path is None:
+            return
+
+        missing = [p for p in prompts if p not in self.baseline_scores]
+        if missing:
+            preview = ", ".join(repr(p[:60]) for p in missing[:3])
+            raise ValueError(
+                f"baseline_scores_path={self.config.baseline_scores_path!r} is configured, "
+                f"but {len(missing)}/{len(prompts)} prompts are missing baseline scores. "
+                f"Examples: {preview}. Run scripts/precompute_baseline_scores.py over the "
+                "same prompt set before training."
+            )
+
+    def make_episode_reward_fn(self):
+        """Create an EpisodeRunner-compatible reward function with metric caching."""
+        prev_metrics = {}
+
+        def reward_fn(
+            prev_z0,
+            curr_z0,
+            action: int,
+            step_index: int,
+            n_max: int,
+            is_terminal: bool,
+            prompt: str,
+            decoded_image: torch.Tensor,
+            nfe_used: int = 50,
+            attention_entropy: float = 0.0,
+        ) -> tuple[float, dict]:
+            prev_img = prev_metrics.get("prev_decoded")
+            reward, metrics = self.compute_reward(
+                prev_image=prev_img,
+                curr_image=decoded_image,
+                prompt=prompt,
+                action=action,
+                is_terminal=is_terminal,
+                nfe_used=nfe_used,
+                n_max=n_max,
+                attention_entropy=attention_entropy,
+                prev_clip=prev_metrics.get("clip_score"),
+                prev_ir=prev_metrics.get("image_reward"),
+                prev_aesthetic=prev_metrics.get("aesthetic_score"),
+            )
+            prev_metrics["prev_decoded"] = decoded_image
+            prev_metrics["clip_score"] = metrics.get("clip_score")
+            prev_metrics["image_reward"] = metrics.get("image_reward")
+            prev_metrics["aesthetic_score"] = metrics.get("aesthetic_score")
+            return reward, metrics
+
+        return reward_fn
 
     def _load_clip(self):
         if self._clip_model is None:
@@ -387,11 +440,13 @@ class RewardComputer:
 
         D-09: Uses c_nfe (not gamma).
         D-10: NFE(refine) = 1 + k (not scaled by mask area).
+        Honest scheduler-step accounting: the observed one-step prediction costs
+        1 NFE even when the agent stops immediately afterward.
         """
         if action == ACTION_CONTINUE:
             nfe = 1
         elif action == ACTION_STOP:
-            nfe = 0
+            nfe = 1
         elif action == ACTION_REFINE:
             nfe = 1 + self.config.refine_k  # D-10
         else:
@@ -413,29 +468,41 @@ class RewardComputer:
 
         Quality term is 0 when agent matches DDIM-20, 1 when it matches DDIM-50.
         Step savings term rewards early stopping proportional to steps saved.
-        Falls back to unnormalized absolute scores when prompt not in baseline_scores.
+        Metrics whose DDIM-50 baseline is not better than DDIM-20 are skipped
+        to avoid exploding normalization. Explicit no-baseline ablations use
+        finite fallback ranges.
         """
         cfg = self.config
-        eps = 1e-6
-
         clip = self.clip_score(image, prompt)
         ir = self.image_reward_score(image, prompt)
         aesthetic = self.aesthetic_score(image)
 
-        # Lookup baseline scores — fallback: ddim20=0, ddim50=1 → unnormalized absolute
-        baseline = self.baseline_scores.get(prompt, {})
-        ddim20 = baseline.get("ddim20", {"clip": 0.0, "aesthetic": 0.0, "image_reward": 0.0})
-        ddim50 = baseline.get("ddim50", {"clip": 1.0, "aesthetic": 1.0, "image_reward": 1.0})
+        baseline_missing = prompt not in self.baseline_scores
+        if baseline_missing:
+            # Finite ablation fallback. Aesthetic is normalized to a 0-10 range
+            # rather than raw 0-1, so it cannot dominate no-baseline runs.
+            ddim20 = {"clip": 0.0, "aesthetic": 0.0, "image_reward": -2.0}
+            ddim50 = {"clip": 1.0, "aesthetic": 10.0, "image_reward": 2.0}
+        else:
+            baseline = self.baseline_scores[prompt]
+            ddim20 = baseline["ddim20"]
+            ddim50 = baseline["ddim50"]
 
-        def norm(score: float, low: float, high: float) -> float:
-            return (score - low) / max(high - low, eps)
+        skipped_metrics = []
+
+        def norm_component(name: str, score: float, low: float, high: float) -> float:
+            denom = high - low
+            if denom <= 1e-6:
+                skipped_metrics.append(name)
+                return 0.0
+            return (score - low) / denom
 
         quality_term = (
-            cfg.beta_1 * norm(clip, ddim20["clip"], ddim50["clip"])
-            + cfg.beta_2 * norm(aesthetic, ddim20["aesthetic"], ddim50["aesthetic"])
-            + cfg.beta_3 * norm(ir, ddim20["image_reward"], ddim50["image_reward"])
+            cfg.beta_1 * norm_component("clip", clip, ddim20["clip"], ddim50["clip"])
+            + cfg.beta_2 * norm_component("aesthetic", aesthetic, ddim20["aesthetic"], ddim50["aesthetic"])
+            + cfg.beta_3 * norm_component("image_reward", ir, ddim20["image_reward"], ddim50["image_reward"])
         )
-        savings_ratio = (n_max - nfe_used) / max(n_max, 1)
+        savings_ratio = max(0.0, (n_max - nfe_used) / max(n_max, 1))
         efficiency_mult = (1.0 + cfg.c_save * savings_ratio) if cfg.terminal_multiplicative else 1.0
 
         if cfg.terminal_multiplicative:
@@ -452,6 +519,8 @@ class RewardComputer:
             "terminal_quality_term": quality_term,
             "terminal_step_savings": step_savings,
             "terminal_efficiency_mult": efficiency_mult,
+            "terminal_baseline_missing": baseline_missing,
+            "terminal_skipped_metrics": skipped_metrics,
             "r_terminal": reward,
         }
         return reward, metrics

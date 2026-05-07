@@ -121,13 +121,17 @@ def episodes_to_batch(
         if not ep.transitions:
             continue
 
-        rewards = [t.reward for t in ep.transitions]
-        values = [t.value for t in ep.transitions]
-        dones = [t.done for t in ep.transitions]
+        train_transitions = [t for t in ep.transitions if not getattr(t, "is_warmup", False)]
+        if not train_transitions:
+            continue
+
+        rewards = [t.reward for t in train_transitions]
+        values = [t.value for t in train_transitions]
+        dones = [t.done for t in train_transitions]
 
         advantages, returns = compute_gae(rewards, values, dones, gamma, lam)
 
-        for i, t in enumerate(ep.transitions):
+        for i, t in enumerate(train_transitions):
             all_states.append(t.state_features.squeeze(0))  # (d,)
             all_actions.append(t.action)
             all_log_probs.append(t.log_prob)

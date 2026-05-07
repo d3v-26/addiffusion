@@ -89,32 +89,7 @@ def load_prompts(path: str) -> list[str]:
 
 def make_reward_fn(reward_computer: RewardComputer, pipeline: AdaptiveDiffusionPipeline):
     """Return a reward callable compatible with EpisodeRunner.run_episode."""
-
-    def reward_fn(
-        prev_z0,
-        curr_z0,
-        action: int,
-        step_index: int,
-        n_max: int,
-        is_terminal: bool,
-        prompt: str,
-        decoded_image,
-    ) -> float:
-        try:
-            prev_image = pipeline.decode(prev_z0) if prev_z0 is not None else None
-            curr_image = decoded_image
-            total, _ = reward_computer.compute_reward(
-                prev_image=prev_image,
-                curr_image=curr_image,
-                prompt=prompt,
-                action=action,
-                is_terminal=is_terminal,
-            )
-            return total
-        except Exception:
-            return 0.0
-
-    return reward_fn
+    return reward_computer.make_episode_reward_fn()
 
 
 def run_sweep_for_lr(

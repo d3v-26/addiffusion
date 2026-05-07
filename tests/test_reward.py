@@ -29,11 +29,11 @@ def test_efficiency_reward():
     r_refine = rc.compute_efficiency_reward(ACTION_REFINE)
 
     assert r_continue == -0.01 * 1, f"Continue: -c_nfe*1 = {r_continue}"
-    assert r_stop == 0.0, f"Stop: -c_nfe*0 = {r_stop}"
+    assert r_stop == -0.01 * 1, f"Stop: -c_nfe*1 = {r_stop}"
     assert r_refine == -0.01 * 3, f"Refine: -c_nfe*(1+k) = {r_refine} (D-10: should be -0.03)"
 
     print(f"  Continue: {r_continue} (NFE=1)")
-    print(f"  Stop: {r_stop} (NFE=0)")
+    print(f"  Stop: {r_stop} (NFE=1 observation)")
     print(f"  Refine: {r_refine} (NFE=1+k=3, D-10)")
     print("[PASS] Efficiency rewards use c_nfe (D-09) and correct NFE formula (D-10)")
 
@@ -147,7 +147,7 @@ def test_full_reward(model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-
     print(f"  Terminal reward: {reward_t:.4f}")
     print(f"  Components: quality={metrics_t.get('r_quality', 0):.4f}, efficiency={metrics_t['r_efficiency']:.4f}, terminal={metrics_t['r_terminal']:.4f}")
     assert metrics_t["r_terminal"] != 0.0, "Terminal reward should be non-zero"
-    assert metrics_t["r_efficiency"] == 0.0  # Stop has NFE=0
+    assert metrics_t["r_efficiency"] == -0.01  # Stop pays for observation NFE
 
     print("[PASS] Composite reward: R = R_quality + R_efficiency + R_terminal (D-13: no lambdas)")
 
@@ -253,6 +253,68 @@ def test_terminal_reward_fallback_no_baseline():
     assert abs(metrics["terminal_quality_term"] - 0.5) < 1e-3, \
         f"Fallback quality term: expected 0.5, got {metrics['terminal_quality_term']:.3f}"
     print(f"[PASS] Fallback terminal reward for unseen prompt: {reward:.3f}")
+
+
+def test_terminal_reward_skips_non_improving_baseline_metric():
+    """When DDIM-50 <= DDIM-20 for a metric, terminal reward stays finite."""
+    cfg = RewardConfig(beta_1=1.0, beta_2=1.0, beta_3=1.0, c_save=0.0,
+                       terminal_multiplicative=False, baseline_scores_path=None)
+    rc = RewardComputer(config=cfg, device="cpu")
+    rc.baseline_scores = {
+        "a cat": {
+            "ddim20": {"clip": 0.35, "aesthetic": 5.5, "image_reward": 0.40},
+            "ddim50": {"clip": 0.34, "aesthetic": 5.7, "image_reward": 0.40},
+        }
+    }
+    fake_image = torch.rand(1, 3, 64, 64)
+    rc.clip_score = lambda img, prompt: 0.36
+    rc.image_reward_score = lambda img, prompt: 0.50
+    rc.aesthetic_score = lambda img: 5.7
+
+    reward, metrics = rc.compute_terminal_reward(fake_image, "a cat", nfe_used=50, n_max=50)
+    assert torch.isfinite(torch.tensor(reward)), f"Reward should be finite, got {reward}"
+    assert set(metrics["terminal_skipped_metrics"]) == {"clip", "image_reward"}
+    assert abs(metrics["terminal_quality_term"] - 1.0) < 1e-3
+    print(f"[PASS] Non-improving baseline metrics skipped; reward={reward:.3f}")
+
+
+def test_validate_baseline_coverage():
+    """Configured baselines must cover all training prompts."""
+    cfg = RewardConfig(baseline_scores_path="data/baseline_scores.json")
+    rc = RewardComputer(config=cfg, device="cpu")
+    rc.baseline_scores = {"covered": {"ddim20": {}, "ddim50": {}}}
+    try:
+        rc.validate_baseline_coverage(["covered", "missing"])
+    except ValueError as e:
+        assert "missing baseline scores" in str(e)
+        print("[PASS] Missing baseline coverage raises ValueError")
+        return
+    raise AssertionError("Expected missing baseline coverage to raise")
+
+
+def test_episode_reward_helper_returns_metrics():
+    """Shared reward helper caches previous metrics and returns (reward, metrics)."""
+    cfg = RewardConfig(alpha_3=0.0, beta_1=0.0, beta_2=0.0, beta_3=0.0,
+                       c_save=0.0, baseline_scores_path=None)
+    rc = RewardComputer(config=cfg, device="cpu")
+
+    clip_scores = iter([0.3, 0.35])
+    ir_scores = iter([0.4, 0.5])
+    aesthetic_scores = iter([5.0, 5.2])
+    rc.clip_score = lambda img, prompt: next(clip_scores)
+    rc.image_reward_score = lambda img, prompt: next(ir_scores)
+    rc.aesthetic_score = lambda img: next(aesthetic_scores)
+    rc.dino_similarity = lambda prev, curr: 0.9
+
+    reward_fn = rc.make_episode_reward_fn()
+    fake_image = torch.rand(1, 3, 64, 64)
+    r1, m1 = reward_fn(None, None, ACTION_CONTINUE, 0, 50, False, "a cat", fake_image, nfe_used=1)
+    r2, m2 = reward_fn(None, None, ACTION_CONTINUE, 1, 50, False, "a cat", fake_image, nfe_used=2)
+
+    assert "clip_score" in m1
+    assert abs(m2["delta_clip"] - 0.05) < 1e-6
+    assert r2 != r1
+    print("[PASS] Shared episode reward helper returns metrics and caches previous scores")
 
 
 def test_refine_bonus():
@@ -396,6 +458,9 @@ if __name__ == "__main__":
     test_compute_attention_entropy_range()
     test_terminal_reward_with_baselines()
     test_terminal_reward_fallback_no_baseline()
+    test_terminal_reward_skips_non_improving_baseline_metric()
+    test_validate_baseline_coverage()
+    test_episode_reward_helper_returns_metrics()
     test_refine_bonus()
     test_terminal_reward_multiplicative()
     test_terminal_reward_multiplicative_quality_tradeoff()

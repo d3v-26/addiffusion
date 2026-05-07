@@ -115,6 +115,54 @@ def select_prompt(
     return random.choice(pool)
 
 
+REWARD_COMPONENT_KEYS = [
+    "r_quality",
+    "r_efficiency",
+    "r_terminal",
+    "r_refine_bonus",
+    "r_total",
+    "delta_clip_norm",
+    "delta_aesthetic_norm",
+    "delta_ir_norm",
+    "dino_similarity",
+    "terminal_quality_term",
+    "terminal_step_savings",
+    "terminal_efficiency_mult",
+]
+
+
+def summarize_reward_components(episodes: list) -> dict:
+    """Average numeric reward metrics over transitions for debug logging."""
+    totals = {key: 0.0 for key in REWARD_COMPONENT_KEYS}
+    counts = {key: 0 for key in REWARD_COMPONENT_KEYS}
+    skipped_metric_count = 0
+    missing_baseline_count = 0
+
+    for ep in episodes:
+        for transition in ep.transitions:
+            metrics = getattr(transition, "reward_metrics", {}) or {}
+            for key in REWARD_COMPONENT_KEYS:
+                value = metrics.get(key)
+                if isinstance(value, bool) or value is None:
+                    continue
+                if isinstance(value, (int, float)):
+                    totals[key] += float(value)
+                    counts[key] += 1
+            skipped = metrics.get("terminal_skipped_metrics") or []
+            skipped_metric_count += len(skipped)
+            if metrics.get("terminal_baseline_missing"):
+                missing_baseline_count += 1
+
+    summary = {
+        key: totals[key] / counts[key]
+        for key in REWARD_COMPONENT_KEYS
+        if counts[key] > 0
+    }
+    summary["terminal_skipped_metric_count"] = skipped_metric_count
+    summary["terminal_missing_baseline_count"] = missing_baseline_count
+    return summary
+
+
 def train(cfg: dict):
     """Main training loop."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -209,6 +257,7 @@ def train(cfg: dict):
     print(f"Loading prompts from {cfg['training']['prompt_dataset']}...")
     prompts = load_prompts(cfg["training"]["prompt_dataset"])
     print(f"  Loaded {len(prompts)} prompts")
+    reward_computer.validate_baseline_coverage(prompts)
 
     # Set seed
     seed = cfg["training"]["seed"]
@@ -238,38 +287,13 @@ def train(cfg: dict):
             prompt = select_prompt(prompts, iteration, cfg["training"]["curriculum"])
             ep_seed = seed + iteration * batch_size + b
 
-            # Create reward function closure
-            prev_metrics = {}
-
-            def reward_fn(prev_z0, curr_z0, action, step_index, n_max, is_terminal, prompt, decoded_image,
-                          nfe_used=50, attention_entropy=0.0, _prev=prev_metrics):
-                prev_img = _prev.get("prev_decoded")
-                reward, metrics = reward_computer.compute_reward(
-                    prev_image=prev_img,
-                    curr_image=decoded_image,
-                    prompt=prompt,
-                    action=action,
-                    is_terminal=is_terminal,
-                    nfe_used=nfe_used,
-                    n_max=n_max,
-                    attention_entropy=attention_entropy,
-                    prev_clip=_prev.get("clip_score"),
-                    prev_ir=_prev.get("image_reward"),
-                    prev_aesthetic=_prev.get("aesthetic_score"),
-                )
-                _prev["prev_decoded"] = decoded_image
-                _prev["clip_score"] = metrics.get("clip_score")
-                _prev["image_reward"] = metrics.get("image_reward")
-                _prev["aesthetic_score"] = metrics.get("aesthetic_score")
-                return reward
-
             ep = runner.run_episode(
                 prompt=prompt,
                 policy=policy,
                 value_net=value_net,
                 num_steps=num_steps,
                 seed=ep_seed,
-                reward_fn=reward_fn,
+                reward_fn=reward_computer.make_episode_reward_fn(),
             )
             episodes.append(ep)
             batch_nfe += ep.total_nfe
@@ -288,6 +312,7 @@ def train(cfg: dict):
         if iteration % cfg["training"]["log_every"] == 0:
             avg_nfe = batch_nfe / batch_size
             avg_reward = batch_rewards / batch_size
+            reward_components = summarize_reward_components(episodes)
 
             # Action distribution
             all_actions = []
@@ -309,6 +334,23 @@ def train(cfg: dict):
                 f"entropy={ppo_metrics['entropy']:.3f} | "
                 f"clip_frac={ppo_metrics['clip_fraction']:.3f} | "
                 f"time={iter_time:.1f}s"
+            )
+            print(
+                "  reward components | "
+                f"Q={reward_components.get('r_quality', 0.0):+.3f} "
+                f"Eff={reward_components.get('r_efficiency', 0.0):+.3f} "
+                f"Term={reward_components.get('r_terminal', 0.0):+.3f} "
+                f"Ref={reward_components.get('r_refine_bonus', 0.0):+.3f} "
+                f"Total={reward_components.get('r_total', 0.0):+.3f} | "
+                f"dCLIP={reward_components.get('delta_clip_norm', 0.0):+.3f} "
+                f"dAes={reward_components.get('delta_aesthetic_norm', 0.0):+.3f} "
+                f"dIR={reward_components.get('delta_ir_norm', 0.0):+.3f} "
+                f"DINO={reward_components.get('dino_similarity', 0.0):+.3f} | "
+                f"TQ={reward_components.get('terminal_quality_term', 0.0):+.3f} "
+                f"TSave={reward_components.get('terminal_step_savings', 0.0):+.3f} "
+                f"TMult={reward_components.get('terminal_efficiency_mult', 0.0):+.3f} | "
+                f"skip={int(reward_components.get('terminal_skipped_metric_count', 0))} "
+                f"missing={int(reward_components.get('terminal_missing_baseline_count', 0))}"
             )
 
         # Checkpoint
